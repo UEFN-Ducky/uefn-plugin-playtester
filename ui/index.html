@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Play Tester</title>
+  <script src="../../_kit/ducky.js"></script>
+  <link rel="stylesheet" href="playtester.css">
+</head>
+<body class="dk-page">
+  <div class="pt-app">
+    <header class="pt-top">
+      <h1 class="pt-title">Play Tester</h1>
+      <span id="bClient" class="dk-badge" title="Fortnite client">Fortnite: checking…</span>
+      <span id="bJev" class="dk-badge" title="Jev (TypeSafe)">Jev: checking…</span>
+      <span id="bBeacon" class="dk-badge" title="Play Tester beacon device (world position)">Beacon: off</span>
+      <span id="bRun" class="dk-badge">Idle</span>
+      <span class="pt-spacer"></span>
+      <label class="pt-runpick">
+        <span class="dk-muted">Run</span>
+        <select id="runPick" class="dk-select" aria-label="Run to show"></select>
+      </label>
+      <button id="follow" type="button" class="dk-btn dk-btn--secondary" aria-pressed="true" title="Follow the newest step">Live</button>
+    </header>
+
+    <form id="goalForm" class="dk-card pt-goal" autocomplete="off">
+      <div class="pt-goal__fields">
+        <label class="dk-field pt-wide">
+          <span class="dk-field__label">Goal</span>
+          <input id="fGoal" class="dk-input" placeholder="walk to the vending machine and use it">
+        </label>
+        <label class="dk-field">
+          <span class="dk-field__label">Target</span>
+          <input id="fTarget" class="dk-input" placeholder="the vending machine">
+        </label>
+        <label class="dk-field">
+          <span class="dk-field__label">Level actor (for coordinates)</span>
+          <input id="fActor" class="dk-input" placeholder="VendingMachine2">
+        </label>
+        <label class="dk-field">
+          <span class="dk-field__label">Success check</span>
+          <input id="fSuccess" class="dk-input" placeholder="Is an item shown in the hotbar?">
+        </label>
+        <label class="dk-field">
+          <span class="dk-field__label">Or passes when Verse prints</span>
+          <input id="fPrint" class="dk-input" placeholder="coin collected">
+        </label>
+      </div>
+      <div class="pt-goal__row">
+        <label class="dk-check"><input id="fInteract" type="checkbox"> Use it (hold E)</label>
+        <label class="dk-check"><input id="fDry" type="checkbox"> Dry run (watch, no keys)</label>
+        <span class="pt-spacer"></span>
+        <span id="formMsg" class="dk-muted"></span>
+        <button id="startBtn" type="submit" class="dk-btn dk-btn--primary">Start</button>
+        <button id="stopBtn" type="button" class="dk-btn dk-btn--danger" disabled>Stop</button>
+      </div>
+      <div id="formErr" class="dk-error pt-hidden" role="alert"></div>
+    </form>
+
+    <main class="pt-main">
+      <section class="dk-card pt-view" aria-label="What Jev sees">
+        <div id="frameWrap" class="pt-frame">
+          <img id="frame" alt="Fortnite frame of the selected step">
+          <div id="box" class="pt-box pt-hidden"><span id="boxLabel" class="pt-box__label"></span></div>
+          <div class="pt-cross" aria-hidden="true"></div>
+          <div id="turn" class="pt-turn pt-hidden" aria-hidden="true"><span></span></div>
+          <div id="frameEmpty" class="dk-empty pt-frame__empty">
+            <div class="dk-empty__title">No steps yet</div>
+            Start a play test here, or ask Ducky in chat to play test something in game.
+          </div>
+        </div>
+        <div id="caption" class="pt-caption dk-muted">Waiting for a step</div>
+      </section>
+
+      <aside class="pt-side">
+        <section class="dk-card">
+          <div class="dk-card__title">Map</div>
+          <div class="pt-mapwrap">
+            <svg id="map" class="pt-map" viewBox="-100 -100 200 200" role="img" aria-label="Top-down map around the player, facing up">
+              <circle class="pt-map__ring" r="94"></circle>
+              <circle class="pt-map__ring" r="47"></circle>
+              <polyline id="mapTrail" class="pt-map__trail" points=""></polyline>
+              <g id="mapMarks"></g>
+              <line id="mapLine" class="pt-map__line pt-hidden" x1="0" y1="0" x2="0" y2="0"></line>
+              <circle id="mapTarget" class="pt-map__target pt-hidden" r="6"></circle>
+              <path class="pt-map__player" d="M 0 -11 L 8 9 L 0 4 L -8 9 Z"></path>
+            </svg>
+            <div class="pt-mapinfo">
+              <div id="mapText" class="pt-map__text">No beacon yet</div>
+              <div id="mapPose" class="dk-dim pt-map__pose"></div>
+              <div id="mapNear" class="dk-dim pt-map__pose"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="dk-card">
+          <div class="dk-card__title">Pressing</div>
+          <div class="pt-pad">
+            <div id="keys" class="pt-keys" aria-label="Keyboard keys pressed this step"></div>
+            <div class="pt-mouse" aria-label="Mouse this step">
+              <div class="pt-mouse__btns">
+                <span id="mLeft" class="pt-mbtn">L</span>
+                <span id="mRight" class="pt-mbtn">R</span>
+              </div>
+              <button id="dial" type="button" class="pt-dial" title="Click the left or right half to turn 30°">
+                <span id="dialArrow" class="pt-dial__arrow"></span>
+              </button>
+              <div id="dialLabel" class="pt-mouse__label dk-muted">no turn</div>
+            </div>
+          </div>
+          <div class="pt-hint dk-dim">Click a key or the dial to nudge the player by hand.</div>
+        </section>
+
+        <section class="dk-card">
+          <div class="dk-card__title">Jev saw</div>
+          <div id="answers" class="pt-answers"></div>
+          <div class="pt-why-wrap">
+            <div class="dk-field__label">Why this move</div>
+            <div id="why" class="pt-why">—</div>
+          </div>
+        </section>
+      </aside>
+    </main>
+
+    <section class="dk-card pt-steps">
+      <div class="pt-steps__head">
+        <div class="dk-card__title">Steps</div>
+        <span id="runInfo" class="dk-muted"></span>
+      </div>
+      <ol id="timeline" class="pt-timeline"></ol>
+    </section>
+  </div>
+  <script src="playtester.js"></script>
+</body>
+</html>
