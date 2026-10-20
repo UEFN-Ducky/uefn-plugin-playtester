@@ -39,6 +39,9 @@ def client() -> dict[str, Any]:
         if "found" in found:
             return {"ok": False, "error": "More than one Fortnite window is open: close the extra one."}
         return {"ok": False, "error": found or "No Fortnite client found"}
+    if status.get("running") is False:
+        # Apps from Oct 19 2026 answer "no client" as {ok: True, running: False}.
+        return {"ok": False, "error": "No Fortnite client is open: start a session in UEFN (Launch Session) and wait for the island."}
     return status
 
 
