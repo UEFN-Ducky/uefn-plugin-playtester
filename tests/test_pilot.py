@@ -229,7 +229,7 @@ def test_start_needs_a_goal_and_a_key(tmp_path, monkeypatch):
 def test_manual_actions_keep_a_short_history(tmp_path):
     the, store, game, events = make(tmp_path)
     frame = game.grab(7, 640)
-    for i in range(45):
+    for _ in range(45):
         the.manual("press", frame, {}, [{"keys": ["W"], "seconds": 0.3}], [], "press W 0.3 s", time.perf_counter())
     doc = store.get("manual")
     assert doc["n_steps"] == 45 and len(doc["steps"]) == pilot.MANUAL_KEEP

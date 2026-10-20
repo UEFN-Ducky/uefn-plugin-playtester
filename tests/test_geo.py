@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import time
-
 from uefn_plugin_playtester import beacon, geo, pilot, policy, questions, runs
 
 import test_pilot as tp

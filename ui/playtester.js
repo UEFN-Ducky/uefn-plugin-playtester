@@ -214,8 +214,8 @@
     $("mapText").textContent = rel ? `Target ${sayRel(rel)}` : "Beacon on (no target position)";
     const calib = where.calib ? ` · mouse ${where.calib.counts}/90°` : "";
     const climb = where.climb_m != null && Math.abs(where.climb_m) >= 0.2 ? ` · ${where.climb_m > 0 ? "climbing" : "dropping"} ${Math.abs(where.climb_m).toFixed(1)} m` : "";
-    const state = pose.state ? ` · ${pose.state === "ground" ? "on ground" : pose.state}` : "";
-    $("mapPose").textContent = `height ${(pose.z / 100).toFixed(1)} m${climb}${state} · facing ${pose.yaw.toFixed(0)}°${where.moved_m != null ? ` · moved ${where.moved_m} m` : ""}${calib}`;
+    const stance = pose.state ? ` · ${pose.state === "ground" ? "on ground" : pose.state}` : "";
+    $("mapPose").textContent = `height ${(pose.z / 100).toFixed(1)} m${climb}${stance} · facing ${pose.yaw.toFixed(0)}°${where.moved_m != null ? ` · moved ${where.moved_m} m` : ""}${calib}`;
     $("mapNear").textContent = (where.nearby || []).length
       ? "Near: " + where.nearby.map((n) => `${n.name} ${Number(n.distance_m).toFixed(0)} m ${n.side}${Math.abs(n.height_m) > 2.5 ? (n.height_m > 0 ? " up" : " down") : ""}`).join(" · ")
       : "";

@@ -73,7 +73,6 @@ def decide(view: dict[str, Any], memory: dict[str, Any] | None, goal: dict[str, 
     conf = cfg["confidence"]
     target = str(goal.get("target") or "").strip()
     success = str(goal.get("success") or "").strip()
-    interact = bool(goal.get("interact"))
 
     def out(actions: list[dict[str, Any]], why: str, finish: dict[str, str] | None = None, aim: dict[str, Any] | None = None,
             rule: str = "") -> dict[str, Any]:
