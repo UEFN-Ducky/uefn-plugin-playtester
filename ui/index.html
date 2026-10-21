@@ -7,73 +7,101 @@
   <link rel="stylesheet" href="playtester.css">
 </head>
 <body class="dk-page">
+  <svg width="0" height="0" class="pt-sprites" aria-hidden="true">
+    <defs>
+      <symbol id="i-pad" viewBox="0 0 24 24"><path d="M6 11h4M8 9v4M15 12h.01M18 10h.01"/><path d="M17.3 5H6.7a4 4 0 0 0-4 3.6L2 15a3 3 0 0 0 5.3 2l1-1.3a2 2 0 0 1 1.5-.7h4.4a2 2 0 0 1 1.5.7l1 1.3A3 3 0 0 0 22 15l-.7-6.4A4 4 0 0 0 17.3 5Z"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 5 5L20 7"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+      <symbol id="i-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4v16l13-8Z"/></symbol>
+      <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1"/></symbol>
+      <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+      <symbol id="i-left" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></symbol>
+      <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+      <symbol id="i-bot" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M12 8V4M9 13h.01M15 13h.01M9 17h6"/></symbol>
+      <symbol id="i-code" viewBox="0 0 24 24"><path d="m8 7-5 5 5 5M16 7l5 5-5 5"/></symbol>
+    </defs>
+  </svg>
+
   <div class="pt-app">
     <header class="pt-top">
-      <h1 class="pt-title">Play Tester</h1>
-      <span id="bClient" class="dk-badge" title="Fortnite client">Fortnite: checking…</span>
-      <span id="bJev" class="dk-badge" title="Jev (TypeSafe)">Jev: checking…</span>
-      <span id="bBeacon" class="dk-badge" title="Play Tester beacon device (world position)">Beacon: off</span>
-      <span id="bRun" class="dk-badge">Idle</span>
+      <div class="pt-brand">
+        <span class="pt-brand__tile"><svg class="ico"><use href="#i-pad"/></svg></span>
+        <h1 class="pt-title">Play Tester</h1>
+      </div>
+      <div id="pills" class="pt-pills"></div>
       <span class="pt-spacer"></span>
-      <label class="pt-runpick">
-        <span class="dk-muted">Run</span>
-        <select id="runPick" class="dk-select" aria-label="Run to show"></select>
-      </label>
-      <button id="follow" type="button" class="dk-btn dk-btn--secondary" aria-pressed="true" title="Follow the newest step">Live</button>
+      <select id="runPick" class="dk-select pt-runpick" aria-label="Run to show"></select>
+      <button id="follow" type="button" class="dk-btn dk-btn--secondary pt-live" aria-pressed="true" title="Follow the newest step"><span class="pt-live__dot"></span>Live</button>
     </header>
 
-    <form id="goalForm" class="dk-card pt-goal" autocomplete="off">
-      <div class="pt-goal__fields">
-        <label class="dk-field pt-wide">
-          <span class="dk-field__label">Goal</span>
-          <input id="fGoal" class="dk-input" placeholder="walk to the vending machine and use it">
-        </label>
-        <label class="dk-field">
-          <span class="dk-field__label">Target</span>
-          <input id="fTarget" class="dk-input" placeholder="the vending machine">
-        </label>
-        <label class="dk-field">
-          <span class="dk-field__label">Level actor (for coordinates)</span>
-          <input id="fActor" class="dk-input" placeholder="VendingMachine2">
-        </label>
-        <label class="dk-field">
-          <span class="dk-field__label">Success check</span>
-          <input id="fSuccess" class="dk-input" placeholder="Is an item shown in the hotbar?">
-        </label>
-        <label class="dk-field">
-          <span class="dk-field__label">Or passes when Verse prints</span>
-          <input id="fPrint" class="dk-input" placeholder="coin collected">
-        </label>
+    <section id="ready" class="pt-ready pt-hidden" aria-label="What Play Tester needs"></section>
+    <div id="err" class="dk-error pt-hidden" role="alert"></div>
+
+    <section id="brief" class="dk-card pt-brief" aria-label="What the agent told the bot to do">
+      <div class="pt-brief__top">
+        <span id="briefIcon" class="pt-brief__icon"></span>
+        <div class="pt-brief__text">
+          <div id="briefBy" class="pt-brief__by"></div>
+          <div id="briefGoal" class="pt-brief__goal"></div>
+          <div id="briefOutcome" class="pt-brief__outcome"></div>
+        </div>
+        <div class="pt-brief__acts">
+          <span id="briefStatus" class="dk-badge pt-hidden"></span>
+          <button id="stopBtn" type="button" class="dk-btn dk-btn--danger pt-hidden"><svg class="ico"><use href="#i-stop"/></svg>Stop</button>
+        </div>
       </div>
-      <div class="pt-goal__row">
-        <label class="dk-check"><input id="fInteract" type="checkbox"> Use it (hold E)</label>
-        <label class="dk-check"><input id="fDry" type="checkbox"> Dry run (watch, no keys)</label>
-        <span class="pt-spacer"></span>
-        <span id="formMsg" class="dk-muted"></span>
-        <button id="startBtn" type="submit" class="dk-btn dk-btn--primary">Start</button>
-        <button id="stopBtn" type="button" class="dk-btn dk-btn--danger" disabled>Stop</button>
+      <div id="briefFacts" class="pt-facts"></div>
+      <div id="briefMeta" class="pt-meta"></div>
+      <div id="briefBar" class="pt-progress" aria-hidden="true"><i></i></div>
+      <button id="ordersBtn" type="button" class="dk-btn dk-btn--ghost pt-more" aria-expanded="false" aria-controls="orders">
+        <svg class="ico"><use href="#i-code"/></svg>Show exact orders<svg class="ico"><use href="#i-down"/></svg></button>
+      <div id="orders" class="pt-drawer pt-hidden">
+        <div id="orderTabs" class="dk-tabs" role="tablist" aria-label="Run details">
+          <button type="button" class="dk-tab" role="tab" data-tab="call" aria-selected="true">Orders</button>
+          <button type="button" class="dk-tab" role="tab" data-tab="questions" aria-selected="false">Questions to Jev</button>
+          <button type="button" class="dk-tab" role="tab" data-tab="rules" aria-selected="false">Rules used</button>
+          <button type="button" class="dk-tab" role="tab" data-tab="log" aria-selected="false">Log</button>
+          <button type="button" class="dk-tab" role="tab" data-tab="settings" aria-selected="false">Settings</button>
+        </div>
+        <div id="orderBody" role="tabpanel"></div>
       </div>
-      <div id="formErr" class="dk-error pt-hidden" role="alert"></div>
-    </form>
+    </section>
 
     <main class="pt-main">
       <section class="dk-card pt-view" aria-label="What Jev sees">
-        <div id="frameWrap" class="pt-frame">
+        <div class="pt-frame">
           <img id="frame" alt="Fortnite frame of the selected step">
           <div id="box" class="pt-box pt-hidden"><span id="boxLabel" class="pt-box__label"></span></div>
           <div class="pt-cross" aria-hidden="true"></div>
           <div id="turn" class="pt-turn pt-hidden" aria-hidden="true"><span></span></div>
-          <div id="frameEmpty" class="dk-empty pt-frame__empty">
-            <div class="dk-empty__title">No steps yet</div>
-            Start a play test here, or ask Ducky in chat to play test something in game.
-          </div>
+          <div id="ovTL" class="pt-ov pt-ov--tl"></div>
+          <div id="ovTR" class="pt-ov pt-ov--tr"></div>
+          <div id="ovBL" class="pt-ov pt-ov--bl"></div>
+          <div id="setup" class="pt-setup"></div>
         </div>
-        <div id="caption" class="pt-caption dk-muted">Waiting for a step</div>
+        <div class="pt-film">
+          <button id="prev" type="button" class="dk-btn dk-btn--ghost dk-btn--icon" aria-label="Previous step"><svg class="ico"><use href="#i-left"/></svg></button>
+          <div id="film" class="pt-film__track" role="listbox" aria-label="Steps"></div>
+          <button id="next" type="button" class="dk-btn dk-btn--ghost dk-btn--icon" aria-label="Next step"><svg class="ico"><use href="#i-right"/></svg></button>
+        </div>
       </section>
 
       <aside class="pt-side">
         <section class="dk-card">
-          <div class="dk-card__title">Map</div>
+          <div class="pt-card-head"><span class="pt-label">Jev's move</span><span id="rule"></span><span class="pt-spacer"></span><span id="jevMs" class="dk-muted pt-mono"></span></div>
+          <div id="move" class="pt-move"></div>
+          <div id="why" class="pt-why pt-hidden"></div>
+          <div id="answers" class="pt-answers pt-hidden"></div>
+          <div id="stepData" class="pt-stepdata pt-hidden">
+            <button id="stepBtn" type="button" class="dk-btn dk-btn--ghost pt-more" aria-expanded="false" aria-controls="stepBody">
+              <svg class="ico"><use href="#i-code"/></svg>Step data<svg class="ico"><use href="#i-down"/></svg></button>
+            <div id="stepBody" class="pt-hidden"></div>
+          </div>
+        </section>
+
+        <section class="dk-card">
+          <div class="pt-card-head"><span class="pt-label">Position</span><span class="pt-spacer"></span><span id="beaconTag" class="dk-muted"></span></div>
           <div class="pt-mapwrap">
             <svg id="map" class="pt-map" viewBox="-100 -100 200 200" role="img" aria-label="Top-down map around the player, facing up">
               <circle class="pt-map__ring" r="94"></circle>
@@ -85,15 +113,16 @@
               <path class="pt-map__player" d="M 0 -11 L 8 9 L 0 4 L -8 9 Z"></path>
             </svg>
             <div class="pt-mapinfo">
-              <div id="mapText" class="pt-map__text">No beacon yet</div>
-              <div id="mapPose" class="dk-dim pt-map__pose"></div>
-              <div id="mapNear" class="dk-dim pt-map__pose"></div>
+              <div id="mapBig" class="pt-map__big"></div>
+              <div id="mapSub" class="pt-map__sub"></div>
             </div>
           </div>
+          <div id="xyz" class="pt-xyz pt-hidden"></div>
+          <div id="mapNear" class="pt-near"></div>
         </section>
 
         <section class="dk-card">
-          <div class="dk-card__title">Pressing</div>
+          <div class="pt-card-head"><span class="pt-label">Pressing</span><span class="pt-spacer"></span><span id="dialLabel" class="dk-muted">no turn</span></div>
           <div class="pt-pad">
             <div id="keys" class="pt-keys" aria-label="Keyboard keys pressed this step"></div>
             <div class="pt-mouse" aria-label="Mouse this step">
@@ -101,33 +130,15 @@
                 <span id="mLeft" class="pt-mbtn">L</span>
                 <span id="mRight" class="pt-mbtn">R</span>
               </div>
-              <button id="dial" type="button" class="pt-dial" title="Click the left or right half to turn 30°">
+              <button id="dial" type="button" class="pt-dial" title="Click the left or right half to turn 30°" aria-label="Turn the player 30 degrees">
                 <span id="dialArrow" class="pt-dial__arrow"></span>
               </button>
-              <div id="dialLabel" class="pt-mouse__label dk-muted">no turn</div>
             </div>
           </div>
-          <div class="pt-hint dk-dim">Click a key or the dial to nudge the player by hand.</div>
-        </section>
-
-        <section class="dk-card">
-          <div class="dk-card__title">Jev saw</div>
-          <div id="answers" class="pt-answers"></div>
-          <div class="pt-why-wrap">
-            <div class="dk-field__label">Why this move</div>
-            <div id="why" class="pt-why">—</div>
-          </div>
+          <div id="padHint" class="pt-hint"></div>
         </section>
       </aside>
     </main>
-
-    <section class="dk-card pt-steps">
-      <div class="pt-steps__head">
-        <div class="dk-card__title">Steps</div>
-        <span id="runInfo" class="dk-muted"></span>
-      </div>
-      <ol id="timeline" class="pt-timeline"></ol>
-    </section>
   </div>
   <script src="playtester.js"></script>
 </body>

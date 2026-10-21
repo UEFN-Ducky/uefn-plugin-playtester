@@ -1,7 +1,7 @@
 {
   "id": "playtester",
   "kind": "plugin",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "label": "Play Tester",
   "description": "Plays the live Fortnite client with Jev vision and world coordinates: sees each frame, knows where the player and the target are (even behind a building or upstairs), decides moves in about a second, and shows every key, mouse turn and Jev decision live in its tab. Chat agents start in-game play tests with one tool call. Uses the TypeSafe key from Settings \u2192 LLMs.",
   "min_app_version": "1.2.390",

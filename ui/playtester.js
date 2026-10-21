@@ -1,5 +1,7 @@
-/* Play Tester tab: follows runs live (push events, with a slow poll as a safety net),
-   shows the frame with Jev's box, the keys and mouse of each step, Jev's answers and why. */
+/* Play Tester tab: agents start runs (playtester_run), people watch them here.
+   Follows runs live (push events, with a slow poll as a safety net) and shows what the
+   agent asked for, the exact questions and rules, every step's frame, keys, Jev's
+   answers and where the player is. People can stop a run and nudge the player by hand. */
 (function () {
   "use strict";
 
@@ -12,15 +14,36 @@
   ];
   const KEY_LABEL = { SHIFT: "Shift", CTRL: "Ctrl", SPACE: "Space" };
   const DONE = ["success", "failed", "blocked", "stopped", "timeout", "done"];
-  const STATUS_BADGE = {
-    running: "dk-badge--accent", stopping: "dk-badge--warn", success: "dk-badge--success",
-    failed: "dk-badge--danger", blocked: "dk-badge--warn", stopped: "dk-badge--info",
-    timeout: "dk-badge--warn", done: "dk-badge--success", manual: "dk-badge--info",
+  const TONE = {
+    running: "run", stopping: "warn", success: "good", done: "good", failed: "bad",
+    blocked: "warn", timeout: "warn", stopped: "info", manual: "info",
+  };
+  const BADGE = { run: "dk-badge--accent", good: "dk-badge--success", bad: "dk-badge--danger", warn: "dk-badge--warn", info: "dk-badge--info" };
+  const ORIGIN = { tool: "Agent tool call", workflow: "Workflow node", manual: "Single actions" };
+  const RULES = {
+    approach: "target seen: turn toward it and walk", scan: "target not seen: turn and look", lost: "lost sight of it: turn back",
+    explore: "not found after a full look: walk somewhere new", "free-explore": "no target: walk and look around",
+    "jev-pick": "no target: Jev picks the next move", nudge: "next to it, no use prompt: step closer", use: "use prompt shown: hold E",
+    settle: "used it: waiting for the success check", reached: "reached the target", done: "success check passed twice",
+    "done-once": "success check passed once: look again", "wait-success": "at the target: waiting for the success check",
+    unstick: "the view stopped changing: back up and turn", loading: "loading screen: wait", eliminated: "the player was eliminated",
+    blocked: "a menu or popup covers the game", "coord-turn": "world position: turn toward the target", "coord-walk": "world position: walk toward the target",
+    "coord-detour": "world position: walk around what blocks the way", "floor-climb": "target on another floor: take the way up or down",
+    "floor-stairs": "stairs seen: walk to them", "floor-scan": "target on another floor: look for stairs", "floor-explore": "no stairs seen: explore",
+    "jev-error": "Jev didn't answer",
+  };
+  const NAMES = {
+    screen: "Screen", seen: "Target seen", where: "Where", near: "How close", moved: "Moved",
+    path: "Path", prompt: "Use prompt", done: "Success", next: "Jev's move", stairs_seen: "Way up/down",
   };
 
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const pct = (v) => (v == null ? "—" : `${Math.round(Number(v) * 100)}%`);
+  const num = (v, d = 1) => Number(v || 0).toFixed(d);
+  const icon = (id) => `<svg class="ico"><use href="#${id}"/></svg>`;
+  const kilo = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n || 0));
+  const clock = (t) => (t ? new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "");
 
   function call(method, params = {}) {
     const id = crypto.randomUUID();
@@ -48,7 +71,77 @@
     frames: new Map(),  // "run:n" -> full frame data URI
     status: null,
     lastPoll: 0,
+    orders: false,      // "Show exact orders" open
+    tab: "call",
+    stepOpen: false,    // "Step data" open
   };
+  const running = () => !!(state.run && (state.run.status === "running" || state.run.status === "stopping"));
+  const conf = () => Number((state.run && state.run.settings && state.run.settings.confidence)
+    || (state.status && state.status.settings && state.status.settings.confidence) || 0.6);
+
+  // JSON with keys, strings and numbers marked for color.
+  function code(obj) {
+    const text = JSON.stringify(obj, null, 2) ?? "null";
+    const re = /("(?:\\.|[^"\\])*")(\s*:)?|\b(?:true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g;
+    let out = "", last = 0, m;
+    while ((m = re.exec(text))) {
+      out += esc(text.slice(last, m.index));
+      if (m[1]) out += m[2] ? `<span class="k">${esc(m[1])}</span>${m[2]}` : `<span class="s">${esc(m[1])}</span>`;
+      else out += `<span class="n">${m[0]}</span>`;
+      last = re.lastIndex;
+    }
+    return out + esc(text.slice(last));
+  }
+
+  // ------------------------------------------------------------------ actions in words
+
+  function actChips(step) {
+    const out = [];
+    for (const act of step.actions || []) {
+      if (act.look) out.push(`turn ${act.look > 0 ? "R" : "L"} ${Math.abs(act.look).toFixed(0)}°`);
+      else if (act.keys) out.push(act.keep ? `${act.keys.join("+")} held` : `${act.keys.join("+")} ${num(act.seconds)} s`);
+      else if (act.click) out.push(`${act.click} click`);
+      else if (act.wait) out.push(`wait ${num(act.wait)} s`);
+    }
+    return out.length ? out : ["look"];
+  }
+
+  function moveText(step) {
+    if (!step) return "";
+    const said = [];
+    for (const a of step.actions || []) {
+      if (a.look) said.push(`turn ${a.look > 0 ? "right" : "left"} ${Math.abs(a.look).toFixed(0)}°`);
+      if (a.look_y) said.push(`look ${a.look_y > 0 ? "down" : "up"} ${Math.abs(a.look_y).toFixed(0)}°`);
+      if (a.keys) {
+        const k = a.keys.join("+"), s = num(a.seconds);
+        if (a.keep) said.push(`keep ${k} down`);
+        else if (k === "W") said.push(`walk forward ${s} s`);
+        else if (k === "S") said.push(`walk back ${s} s`);
+        else if (k === "SPACE") said.push("jump");
+        else said.push(`hold ${k} ${s} s`);
+      }
+      if (a.click) said.push(`${a.click} click`);
+      if (a.wait && !a.look && !a.keys) said.push(`wait ${num(a.wait)} s`);
+    }
+    if (!said.length) return step.error ? "Jev didn't answer this step" : "Look only, no keys";
+    const text = said.join(", then ");
+    return text[0].toUpperCase() + text.slice(1);
+  }
+
+  function pressedText(step) {
+    if (step.dry_run) return "Dry run: nothing was pressed.";
+    const lines = [];
+    for (const d of step.done || []) {
+      const cut = (part) => (part && part.cut_short ? `  (cut short: ${part.cut_short})` : "");
+      if (d.look) lines.push(`mouse ${d.look.dx_counts} counts = ${d.look.dx_deg}°${d.look.dy_deg ? `, ${d.look.dy_counts} counts = ${d.look.dy_deg}° up/down` : ""}${cut(d.look)}`);
+      else if (d.press) lines.push(`${(d.press.keys || []).join("+")} down ${num(d.press.seconds, 2)} s${cut(d.press)}`);
+      else if (d.keep) lines.push(`${(d.keep.keys || []).join("+")} kept down`);
+      else if (d.click) lines.push(`${d.click.button} click ${num(d.click.seconds, 2)} s${cut(d.click)}`);
+      else if (d.wait != null) lines.push(`waited ${d.wait} s`);
+      else lines.push(JSON.stringify(d));
+    }
+    return lines.length ? lines.join("\n") : "Nothing was pressed.";
+  }
 
   // ------------------------------------------------------------------ keyboard + mouse
 
@@ -95,7 +188,7 @@
   function showPressing(step) {
     const held = new Map();
     let turn = 0;
-    let clicks = [];
+    const clicks = [];
     const planned = new Set();
     for (const act of (step && step.actions) || []) {
       if (act.keys) for (const k of act.keys) held.set(k, (held.get(k) || 0) + Number(act.seconds || 0));
@@ -116,32 +209,38 @@
     }
     $("mLeft").classList.toggle("is-on", clicks.includes("left"));
     $("mRight").classList.toggle("is-on", clicks.includes("right"));
-    const shown = Math.max(-90, Math.min(90, turn));
-    $("dialArrow").style.setProperty("--turn", `${shown}deg`);
+    $("dialArrow").style.setProperty("--turn", `${Math.max(-90, Math.min(90, turn))}deg`);
     $("dial").classList.toggle("is-on", !!turn);
     const label = turn ? `turn ${turn > 0 ? "right" : "left"} ${Math.abs(turn).toFixed(0)}°` : "no turn";
     $("dialLabel").textContent = dry && (turn || held.size) ? `${label} (dry run)` : label;
+    $("padHint").textContent = state.status && state.status.active_run
+      ? "Keys light up as the bot presses them."
+      : "When no run is playing, click a key or the dial to nudge the player by hand.";
   }
 
-  // ------------------------------------------------------------------ Jev answers
+  // ------------------------------------------------------------------ position (map heading up)
 
-  const NAMES = {
-    screen: "Screen", seen: "Target seen", where: "Where", near: "How close", moved: "Moved",
-    path: "Path", prompt: "Use prompt", done: "Success", next: "Jev's move", stairs_seen: "Way up/down",
-  };
-
-  // ------------------------------------------------------------------ map (heading up)
-
-  function sayRel(rel) {
-    if (!rel) return "";
+  function sayDir(rel) {
     const t = Math.abs(Number(rel.turn_deg) || 0).toFixed(0);
-    const side = rel.side === "ahead" ? "straight ahead"
+    let text = rel.side === "ahead" ? "straight ahead"
       : rel.side === "behind" ? `behind (${t}° ${rel.turn_deg > 0 ? "right" : "left"})`
       : `${t}° ${rel.side}`;
-    let text = `${Number(rel.distance_m).toFixed(1)} m, ${side}`;
-    if (rel.floor === "up") text += `, ${Number(rel.height_m).toFixed(1)} m up`;
-    else if (rel.floor === "down") text += `, ${Math.abs(Number(rel.height_m)).toFixed(1)} m down`;
+    if (rel.floor === "up") text += `, ${num(rel.height_m)} m up`;
+    else if (rel.floor === "down") text += `, ${num(Math.abs(Number(rel.height_m)))} m down`;
+    else text += ", same floor";
     return text;
+  }
+  const sayRel = (rel) => (rel ? `${num(rel.distance_m)} m, ${sayDir(rel)}` : "");
+
+  function showXyz(pose, target) {
+    const el = $("xyz");
+    if (!pose && !target) { el.classList.add("pt-hidden"); return; }
+    const cell = (v) => `<span>${v == null ? "—" : Math.round(Number(v))}</span>`;
+    const name = (state.run && state.run.target_actor) || "Target";
+    el.innerHTML = `<span class="h l">cm</span><span class="h">x</span><span class="h">y</span><span class="h">z</span><span class="h">yaw</span>`
+      + (pose ? `<span class="l">Player</span>${cell(pose.x)}${cell(pose.y)}${cell(pose.z)}<span>${Math.round(Number(pose.yaw))}°</span>` : "")
+      + (target ? `<span class="l" title="${esc(name)}">${esc(name)}</span>${cell(target.x)}${cell(target.y)}${cell(target.z)}<span>—</span>` : "");
+    el.classList.remove("pt-hidden");
   }
 
   function showMap(step) {
@@ -151,15 +250,17 @@
     const trailEl = $("mapTrail");
     const dot = $("mapTarget");
     const line = $("mapLine");
+    const b = (state.status && state.status.beacon) || {};
+    $("beaconTag").textContent = b.on ? "beacon on" : b.seen ? `beacon quiet ${Math.round(b.age_s || 0)} s` : "beacon off";
     if (!pose) {
       $("mapMarks").innerHTML = "";
       $("mapNear").textContent = "";
       trailEl.setAttribute("points", "");
       dot.classList.add("pt-hidden");
       line.classList.add("pt-hidden");
-      const on = state.status && state.status.beacon && state.status.beacon.on;
-      $("mapText").textContent = on ? "Beacon on: start a run to see the map" : "No beacon: Jev steers by the image only";
-      $("mapPose").textContent = target ? `target x ${target.x.toFixed(0)} y ${target.y.toFixed(0)} z ${target.z.toFixed(0)}` : "";
+      $("mapBig").textContent = b.on ? "Waiting" : "No beacon";
+      $("mapSub").textContent = b.on ? "Positions show once a run starts" : "Jev steers by the image only";
+      showXyz(null, target);
       return;
     }
     const yaw = (Number(pose.yaw) || 0) * Math.PI / 180;
@@ -211,25 +312,30 @@
       marksEl.appendChild(c);
     }
     const rel = where.rel;
-    $("mapText").textContent = rel ? `Target ${sayRel(rel)}` : "Beacon on (no target position)";
-    const calib = where.calib ? ` · mouse ${where.calib.counts}/90°` : "";
-    const climb = where.climb_m != null && Math.abs(where.climb_m) >= 0.2 ? ` · ${where.climb_m > 0 ? "climbing" : "dropping"} ${Math.abs(where.climb_m).toFixed(1)} m` : "";
-    const stance = pose.state ? ` · ${pose.state === "ground" ? "on ground" : pose.state}` : "";
-    $("mapPose").textContent = `height ${(pose.z / 100).toFixed(1)} m${climb}${stance} · facing ${pose.yaw.toFixed(0)}°${where.moved_m != null ? ` · moved ${where.moved_m} m` : ""}${calib}`;
-    $("mapNear").textContent = (where.nearby || []).length
-      ? "Near: " + where.nearby.map((n) => `${n.name} ${Number(n.distance_m).toFixed(0)} m ${n.side}${Math.abs(n.height_m) > 2.5 ? (n.height_m > 0 ? " up" : " down") : ""}`).join(" · ")
-      : "";
+    $("mapBig").textContent = rel ? `${num(rel.distance_m)} m` : "No target position";
+    $("mapSub").textContent = rel ? sayDir(rel) : "Beacon on, but the run has no target coordinates";
+    showXyz(pose, target);
+    const bits = [];
+    if ((where.nearby || []).length) {
+      bits.push("Near: " + where.nearby.map((n) => `${n.name} ${Number(n.distance_m).toFixed(0)} m ${n.side}${Math.abs(n.height_m) > 2.5 ? (n.height_m > 0 ? " up" : " down") : ""}`).join(" · "));
+    }
+    if (pose.state) bits.push(pose.state === "ground" ? "on ground" : pose.state);
+    if (where.climb_m != null && Math.abs(where.climb_m) >= 0.2) bits.push(`${where.climb_m > 0 ? "climbing" : "dropping"} ${num(Math.abs(where.climb_m))} m`);
+    if (where.moved_m != null) bits.push(`moved ${where.moved_m} m`);
+    if (where.calib) bits.push(`mouse ${where.calib.counts}/90°`);
+    $("mapNear").textContent = bits.join(" · ");
   }
 
-  function bar(value, conf) {
+  // ------------------------------------------------------------------ Jev's move + answers
+
+  function bar(value, c) {
     const v = Math.max(0, Math.min(1, Number(value) || 0));
-    return `<div class="pt-bar${v < conf ? " is-low" : ""}"><i style="--w:${(v * 100).toFixed(0)}%"></i></div>`;
+    return `<div class="pt-bar${v < c ? " is-low" : ""}"><i style="--w:${(v * 100).toFixed(0)}%"></i></div>`;
   }
 
   function showAnswers(step) {
-    const box = $("answers");
     const view = (step && step.view) || {};
-    const conf = Number((state.status && state.status.settings && state.status.settings.confidence) || 0.6);
+    const c = conf();
     const rows = [];
     for (const key of ["screen", "seen", "where", "near", "moved", "path", "prompt", "stairs_seen", "done", "next"]) {
       const v = view[key];
@@ -238,33 +344,57 @@
         const all = v.all || {};
         const chips = Object.keys(all).length ? Object.keys(all) : [v.choice];
         rows.push(`<div class="pt-ans"><span class="pt-ans__name">${esc(NAMES[key] || key)}</span>
-          <div class="pt-chips">${chips.map((c) => `<span class="pt-choice${c === v.choice ? " is-pick" : ""}">${esc(c.replace(/_/g, " "))}${all[c] != null ? " " + pct(all[c]) : ""}</span>`).join("")}</div>
+          <div class="pt-chips">${chips.map((k) => `<span class="pt-choice${k === v.choice ? " is-pick" : ""}">${esc(k.replace(/_/g, " "))}${all[k] != null ? " " + pct(all[k]) : ""}</span>`).join("")}</div>
           <span class="pt-ans__val">${pct(v.p)}</span></div>`);
       } else {
-        rows.push(`<div class="pt-ans"><span class="pt-ans__name">${esc(NAMES[key] || key)}</span>${bar(v, conf)}<span class="pt-ans__val">${pct(v)}</span></div>`);
+        rows.push(`<div class="pt-ans"><span class="pt-ans__name">${esc(NAMES[key] || key)}</span>${bar(v, c)}<span class="pt-ans__val">${pct(v)}</span></div>`);
       }
     }
     for (const [key, label] of [["box", "Box"], ["stairs_box", "Stairs box"]]) {
       const b = view[key];
       if (!b) continue;
-      rows.push(`<div class="pt-ans"><span class="pt-ans__name">${label}</span><span class="dk-muted">x ${b.left.toFixed(2)}–${b.right.toFixed(2)}, y ${b.top.toFixed(2)}–${b.bottom.toFixed(2)}</span><span class="pt-ans__val">${pct(b.confidence)}</span></div>`);
+      rows.push(`<div class="pt-ans"><span class="pt-ans__name">${label}</span><span class="dk-muted pt-mono">x ${b.left.toFixed(2)}–${b.right.toFixed(2)}, y ${b.top.toFixed(2)}–${b.bottom.toFixed(2)}</span><span class="pt-ans__val">${pct(b.confidence)}</span></div>`);
     }
-    if (view.geo) {
-      rows.push(`<div class="pt-ans"><span class="pt-ans__name">Coordinates</span><span class="pt-ans__value">${esc(sayRel(view.geo))}</span></div>`);
-    }
+    if (view.geo) rows.push(`<div class="pt-ans"><span class="pt-ans__name">Coordinates</span><span class="pt-ans__value">${esc(sayRel(view.geo))}</span></div>`);
+
+    const box = $("answers");
     box.innerHTML = rows.length ? rows.join("") : `<div class="pt-empty-small">No Jev answers for this step.</div>`;
-    $("why").textContent = (step && step.why) || "—";
+    box.classList.toggle("pt-hidden", !step);
+    $("jevMs").textContent = step && step.jev_ms ? `Jev ${step.jev_ms} ms` : "";
+    const rule = step && (step.rule || (step.error ? "jev-error" : step.kind || ""));
+    $("rule").innerHTML = rule ? `<span class="pt-rule" title="${esc(RULES[rule] || rule)}">${esc(rule)}</span>` : "";
+    const moveEl = $("move");
+    moveEl.className = "pt-move" + (!step ? " is-none" : step.error ? " is-error" : "");
+    moveEl.textContent = step ? moveText(step) : "The move Jev picks for each step shows here";
+    $("why").textContent = (step && step.why) || "";
+    $("why").classList.toggle("pt-hidden", !(step && step.why));
+    $("stepData").classList.toggle("pt-hidden", !step);
+    showStepData(step);
+  }
+
+  function showStepData(step) {
+    $("stepBtn").setAttribute("aria-expanded", String(state.stepOpen));
+    const body = $("stepBody");
+    body.classList.toggle("pt-hidden", !state.stepOpen);
+    if (!step || !state.stepOpen) return;
+    const timing = [`capture ${step.capture_ms || 0} ms`, `Jev ${step.jev_ms || 0} ms`, `whole step ${step.ms} ms`];
+    if (step.model) timing.push(step.model);
+    body.innerHTML = `<h4>Planned actions</h4><pre class="pt-code">${code(step.actions || [])}</pre>
+      <h4>Pressed</h4><pre class="pt-code">${esc(pressedText(step))}${step.cut ? `\n<span class="c">${esc(step.cut)}</span>` : ""}</pre>
+      ${step.q && step.q.length ? `<h4>Asked Jev</h4><pre class="pt-code">${esc(step.q.join(", "))}</pre>` : ""}
+      <h4>Jev answers</h4><pre class="pt-code">${code(step.raw && Object.keys(step.raw).length ? step.raw : step.view || {})}</pre>
+      ${step.where ? `<h4>Position</h4><pre class="pt-code">${code(step.where)}</pre>` : ""}
+      <h4>Timing</h4><pre class="pt-code">${esc(timing.join(" · "))}</pre>`;
   }
 
   // ------------------------------------------------------------------ frame + overlay
 
   function showOverlay(step) {
     const view = (step && step.view) || {};
-    const conf = Number((state.status && state.status.settings && state.status.settings.confidence) || 0.6);
     const b = view.box;
     const seen = view.seen == null ? 1 : Number(view.seen);
     const el = $("box");
-    if (b && seen >= conf) {
+    if (b && seen >= conf()) {
       el.style.left = `${(b.left * 100).toFixed(2)}%`;
       el.style.top = `${(b.top * 100).toFixed(2)}%`;
       el.style.width = `${((b.right - b.left) * 100).toFixed(2)}%`;
@@ -287,16 +417,24 @@
     } else {
       arrow.classList.add("pt-hidden");
     }
+    const tl = step ? [`Step ${step.n}`, `${step.ms} ms`] : [];
+    if (step && step.kind) tl.push(step.kind);
+    if (step && step.dry_run) tl.push("dry run");
+    $("ovTL").innerHTML = step ? `<span class="pt-chip">${esc(tl.join(" · "))}</span>` : "";
+    $("ovTR").innerHTML = !step || !running() ? ""
+      : state.follow ? `<span class="pt-chip"><span class="pt-live__dot is-rec pt-pulse"></span>Live</span>`
+      : `<button type="button" class="pt-chip pt-chip--btn" data-live="1">Back to live</button>`;
+    $("ovBL").innerHTML = !step ? ""
+      : step.error ? `<span class="pt-chip pt-chip--warn">Jev error</span>`
+      : actChips(step).map((c) => `<span class="pt-chip${step.dry_run || c === "look" ? "" : " pt-chip--accent"}">${esc(c)}</span>`).join("");
   }
 
   async function showFrame(step) {
     const img = $("frame");
     if (!step) {
       img.removeAttribute("src");
-      $("frameEmpty").classList.remove("pt-hidden");
       return;
     }
-    $("frameEmpty").classList.add("pt-hidden");
     const key = `${state.runId}:${step.n}`;
     const thumb = state.thumbs.get(key);
     if (thumb && !state.frames.has(key)) img.src = thumb;
@@ -314,91 +452,257 @@
     if (full && state.selected === step.n && `${state.runId}:${state.selected}` === key) img.src = full;
   }
 
-  function caption(step) {
-    if (!step) return "Waiting for a step";
-    const bits = [`Step ${step.n}`, `${step.ms} ms`];
-    if (step.jev_ms) bits.push(`Jev ${step.jev_ms} ms`);
-    if (step.capture_ms) bits.push(`capture ${step.capture_ms} ms`);
-    if (step.dry_run) bits.push("dry run: nothing pressed");
-    if (step.kind) bits.push(step.kind);
-    return bits.join(" · ");
+  // The frame area before there is a step: what's missing, or that it waits for an agent.
+  function showSetup(step) {
+    const el = $("setup");
+    el.classList.toggle("pt-hidden", !!step);
+    if (step) return;
+    const st = state.status || {};
+    const c = st.client || {}, j = st.jev || {};
+    if (running()) {
+      el.innerHTML = `<div class="pt-setup__title">Starting the run</div><div class="pt-setup__body">Waiting for the first frame from Fortnite.</div>`;
+    } else if (!c.playing || !j.key) {
+      const item = (ok, now, text) => `<li class="${ok ? "is-done" : now ? "is-now" : ""}"><span class="n">${ok ? icon("i-check") : now ? "!" : "·"}</span><span>${text}</span></li>`;
+      el.innerHTML = `<div class="pt-setup__title">Get the island running</div>
+        <ol class="pt-checklist">
+          ${item(c.playing, !c.playing, c.loading ? "Fortnite is loading the island: wait for it" : "Press <b>Launch Session</b> in UEFN and wait for the island")}
+          ${item(j.key, !j.key, j.key ? `Jev is set up (${esc(j.model)})` : "Paste the TypeSafe key in Settings → LLMs → TypeSafe")}
+          ${item(false, false, "An agent starts a play test, and you watch it here")}
+        </ol>
+        <div class="dk-muted">This tab updates by itself.</div>`;
+    } else {
+      el.innerHTML = `<div class="pt-setup__title">Waiting for an agent</div>
+        <div class="pt-setup__body">When an agent calls <code>playtester_run</code>, every step shows here live: the frame Jev saw, its answers, the rule it used, the keys it pressed and where the player is in the world.</div>`;
+    }
   }
 
   function select(n) {
     state.selected = n;
     const step = state.steps.find((s) => s.n === n) || null;
-    $("caption").textContent = caption(step);
+    showSetup(step);
     showPressing(step);
     showAnswers(step);
     showOverlay(step);
     showMap(step);
     showFrame(step);
-    for (const li of document.querySelectorAll(".pt-step")) li.classList.toggle("is-selected", Number(li.dataset.n) === n);
-  }
-
-  // ------------------------------------------------------------------ timeline
-
-  function actChips(step) {
-    const out = [];
-    for (const act of step.actions || []) {
-      if (act.look) out.push(`turn ${act.look > 0 ? "R" : "L"} ${Math.abs(act.look).toFixed(0)}°`);
-      else if (act.keys) out.push(`${act.keys.join("+")} ${Number(act.seconds || 0).toFixed(1)} s`);
-      else if (act.click) out.push(`${act.click} click`);
-      else if (act.wait) out.push(`wait ${Number(act.wait).toFixed(1)} s`);
+    const track = $("film");
+    let cur = null;
+    for (const b of track.querySelectorAll(".pt-thumb")) {
+      const on = Number(b.dataset.n) === n;
+      b.classList.toggle("is-selected", on);
+      b.setAttribute("aria-selected", on ? "true" : "false");
+      if (on) cur = b;
     }
-    return out.length ? out : ["look"];
+    if (cur) {
+      const left = cur.offsetLeft - 8, right = cur.offsetLeft + cur.offsetWidth + 8;
+      if (left < track.scrollLeft) track.scrollLeft = left;
+      else if (right > track.scrollLeft + track.clientWidth) track.scrollLeft = right - track.clientWidth;
+    }
   }
 
-  function stepRow(step) {
-    const li = document.createElement("li");
-    li.className = "pt-step" + (step.error ? " is-error" : "");
-    li.dataset.n = String(step.n);
-    li.tabIndex = 0;
+  // ------------------------------------------------------------------ filmstrip
+
+  function stepThumb(step) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "pt-thumb" + (step.error ? " is-error" : "") + (step.dry_run ? " is-dry" : "");
+    b.dataset.n = String(step.n);
+    b.setAttribute("role", "option");
+    b.setAttribute("aria-selected", "false");
+    b.title = step.why || "";
     const thumb = state.thumbs.get(`${state.runId}:${step.n}`) || "";
-    li.innerHTML = `<span class="pt-step__n">${step.n}</span>
-      <img class="pt-step__thumb" alt=""${thumb ? ` src="${thumb}"` : ""}>
-      <div class="pt-step__body"><div class="pt-chips">${actChips(step).map((c) => `<span class="pt-act${step.dry_run ? " is-dry" : ""}">${esc(c)}</span>`).join("")}</div>
-      <div class="pt-step__why" title="${esc(step.why)}">${esc(step.why)}</div></div>
-      <span class="pt-step__ms">${step.ms} ms</span>`;
-    const pick = () => { setFollow(false); select(step.n); };
-    li.addEventListener("click", pick);
-    li.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); pick(); } });
-    if (!thumb) lazyThumb(li, step.n);
-    return li;
+    b.innerHTML = `<img alt=""${thumb ? ` src="${thumb}"` : ""}>
+      <span class="pt-thumb__foot"><span class="pt-thumb__n">${step.n}</span><span class="pt-thumb__act">${esc(step.error ? "Jev error" : actChips(step).join(" + "))}</span></span>`;
+    b.addEventListener("click", () => { setFollow(false); select(step.n); });
+    if (!thumb) lazyThumb(b, step.n);
+    return b;
   }
 
-  async function lazyThumb(li, n) {
+  async function lazyThumb(el, n) {
     const runId = state.runId;
     try {
       const out = await rpc("frame", { run_id: runId, step: n, width: 160 });
       if (out && out.ok && runId === state.runId) {
         state.thumbs.set(`${runId}:${n}`, out.src);
-        const img = li.querySelector("img");
+        const img = el.querySelector("img");
         if (img) img.src = out.src;
       }
     } catch (_) { /* no thumbnail */ }
   }
 
   function renderTimeline() {
-    const ol = $("timeline");
-    ol.innerHTML = "";
-    const steps = state.steps.slice().reverse();
-    if (!steps.length) {
-      ol.innerHTML = `<li class="pt-empty-small">No steps in this run yet.</li>`;
+    const track = $("film");
+    track.innerHTML = "";
+    if (!state.steps.length) {
+      track.innerHTML = `<div class="pt-film__empty">Steps show here as Jev plays.</div>`;
       return;
     }
-    for (const s of steps) ol.appendChild(stepRow(s));
+    for (const s of state.steps) track.appendChild(stepThumb(s));
   }
 
   function addStep(step) {
     if (state.steps.some((s) => s.n === step.n)) return;
     state.steps.push(step);
     state.steps.sort((a, b) => a.n - b.n);
-    const ol = $("timeline");
-    const empty = ol.querySelector(".pt-empty-small");
+    const track = $("film");
+    const empty = track.querySelector(".pt-film__empty");
     if (empty) empty.remove();
-    ol.insertBefore(stepRow(step), ol.firstChild);
+    const after = [...track.querySelectorAll(".pt-thumb")].find((b) => Number(b.dataset.n) > step.n) || null;
+    track.insertBefore(stepThumb(step), after);
     if (state.follow) select(step.n);
+  }
+
+  function move(delta) {
+    const i = state.steps.findIndex((s) => s.n === state.selected);
+    const next = state.steps[i + delta];
+    if (!next) return;
+    setFollow(running() && i + delta === state.steps.length - 1);
+    select(next.n);
+    const b = $("film").querySelector(".pt-thumb.is-selected");
+    if (b && $("film").contains(document.activeElement)) b.focus();
+  }
+
+  // ------------------------------------------------------------------ the agent's brief
+
+  function paintBrief() {
+    const r = state.run;
+    const st = state.status || {};
+    const el = $("brief");
+    const tone = r ? TONE[r.status] || "" : "";
+    el.className = "dk-card pt-brief" + (tone ? ` is-${tone}` : "");
+    const active = !!st.active_run;
+    $("stopBtn").classList.toggle("pt-hidden", !(running() || active));
+    const badge = $("briefStatus");
+    badge.classList.toggle("pt-hidden", !r || running() || r.id === "manual");
+    if (r) {
+      badge.className = `dk-badge ${BADGE[tone] || ""}` + (running() || r.id === "manual" ? " pt-hidden" : "");
+      badge.textContent = r.status;
+    }
+    const full = !!r && r.id !== "manual";
+    for (const id of ["briefFacts", "briefMeta", "briefBar"]) $(id).classList.toggle("pt-hidden", !full);
+    $("ordersBtn").classList.toggle("pt-hidden", !r);
+    $("orders").classList.toggle("pt-hidden", !r || !state.orders);
+    $("ordersBtn").setAttribute("aria-expanded", String(!!r && state.orders));
+
+    if (!r) {
+      $("briefIcon").className = "pt-brief__icon";
+      $("briefIcon").innerHTML = icon("i-bot");
+      $("briefBy").textContent = active ? "A run is playing" : "No agent is play testing";
+      $("briefGoal").textContent = active ? "Loading the run…" : st.ready ? "Waiting for an agent to start a play test" : "Agents can play test once Fortnite is in the island";
+      $("briefOutcome").innerHTML = `Agents start runs from chat with <span class="pt-mono">playtester_run</span>. Their exact orders show here.`;
+      return;
+    }
+    $("briefIcon").className = "pt-brief__icon" + (running() ? " pt-pulse" : "");
+    $("briefIcon").innerHTML = icon(running() ? "i-play" : tone === "good" ? "i-check" : tone === "bad" ? "i-x" : r.id === "manual" ? "i-pad" : "i-dot");
+    const by = [`${icon("i-bot")}${esc(ORIGIN[r.origin] || r.origin || "Agent")}`];
+    if (r.started) by.push(`started ${esc(clock(r.started))}`);
+    if (r.island) by.push(esc(r.island));
+    $("briefBy").innerHTML = by.join(" · ");
+    $("briefGoal").textContent = r.goal || r.target || r.target_actor || r.id;
+    const out = $("briefOutcome");
+    if (r.id === "manual") out.textContent = `${r.n_steps || 0} single action${r.n_steps === 1 ? "" : "s"} from agent tools and this tab.`;
+    else if (r.status === "stopping") out.textContent = "Stopping…";
+    else if (running()) out.textContent = "Playing now. You can stop it at any time.";
+    else out.innerHTML = `<span class="pt-outcome--${tone}">${esc(r.status)}</span>${r.reason ? `: ${esc(r.reason)}` : ""}`;
+    if (!full) return;
+
+    const p = r.target_point;
+    const facts = [];
+    if (r.target) facts.push(["Target", r.target]);
+    if (r.target_actor || p) facts.push(["Actor", `${r.target_actor || "point"}${p ? ` (${Math.round(p.x)}, ${Math.round(p.y)}, ${Math.round(p.z)})` : ""}`]);
+    if (r.success) facts.push(["Passes when", r.success]);
+    if (r.success_print) facts.push(["Or Verse prints", r.success_print]);
+    if (r.interact) facts.push(["Use it", "hold E", true]);
+    facts.push(["Limit", `${r.max_steps || "?"} steps${r.max_seconds ? ` / ${Math.round(r.max_seconds)} s` : ""}`]);
+    facts.push(["Steers by", r.beacon && p ? "world position" : "the image"]);
+    if (r.dry_run) facts.push(["Dry run", "nothing pressed", true]);
+    $("briefFacts").innerHTML = facts.map(([k, v, on]) => `<span class="pt-fact${on ? " is-on" : ""}" title="${esc(k)}: ${esc(v)}"><b>${esc(k)}</b>${esc(v)}</span>`).join("");
+    const meta = [`step ${r.n_steps || 0} of ${r.max_steps || "?"}`, `${num(r.seconds)} s${r.max_seconds ? ` of ${Math.round(r.max_seconds)} s` : ""}`];
+    if (r.avg_ms) meta.push(`avg ${r.avg_ms} ms (Jev ${r.jev_ms} ms)`);
+    if (r.tokens) meta.push(`${kilo(r.tokens.input)} in / ${kilo(r.tokens.output)} out tokens`);
+    $("briefMeta").innerHTML = meta.map((m) => `<span>${esc(m)}</span>`).join("");
+    const share = running() ? Math.min(1, (r.n_steps || 0) / (r.max_steps || 1)) : 1;
+    $("briefBar").firstElementChild.style.setProperty("--w", `${(share * 100).toFixed(1)}%`);
+  }
+
+  // "Show exact orders": what the run was given, the questions, the rules, the log, the settings.
+  function paintOrders() {
+    const r = state.run;
+    if (!r || !state.orders) return;
+    for (const b of $("orderTabs").children) b.setAttribute("aria-selected", String(b.dataset.tab === state.tab));
+    const body = $("orderBody");
+    const row = (k, v, sub) => `<div class="pt-row"><span class="pt-row__k">${esc(k)}</span><span class="pt-row__v">${v}${sub ? `<div class="pt-row__sub">${sub}</div>` : ""}</span></div>`;
+    if (state.tab === "call") {
+      const given = {};
+      for (const k of ["goal", "target", "target_actor", "target_point", "success", "success_print", "interact", "dry_run", "max_steps", "max_seconds"]) {
+        if (r[k] !== undefined && r[k] !== null && r[k] !== "") given[k] = r[k];
+      }
+      const head = r.origin === "workflow" ? "// the workflow node's inputs, as the run stored them" : r.origin === "manual" ? "// single actions, no orders" : "// playtester_run, as the run stored it (defaults filled in)";
+      const m = r.memory_used;
+      const lesson = m ? [
+        `${m.tries} earlier run${m.tries === 1 ? "" : "s"} on this target, ${m.wins || 0} passed`,
+        [m.scan_side ? `It was first seen on the ${esc(m.scan_side)}, so scans turn ${esc(m.scan_side)} first.` : "",
+         m.point ? `Target position ${Math.round(m.point.x)}, ${Math.round(m.point.y)}, ${Math.round(m.point.z)} from ${esc(m.point_from || "memory")}.` : "",
+         m.warn ? esc(m.warn) : "", m.source ? `Last run: ${esc(m.source)}.` : ""].filter(Boolean).join(" "),
+      ] : null;
+      body.innerHTML = `<pre class="pt-code"><span class="c">${esc(head)}</span>\n${code(given)}</pre>
+        <div class="pt-rows">
+          ${row("steering", r.beacon ? "beacon on: the player's world position is known" : "beacon off: Jev steers by the image only")}
+          ${lesson ? row("lessons used", esc(lesson[0]), lesson[1]) : row("lessons used", "none: no earlier run on this target")}
+          ${row("run id", `<span class="pt-mono">${esc(r.id)}</span>`)}
+        </div>`;
+    } else if (state.tab === "questions") {
+      const qs = Object.entries(r.question_text || {});
+      body.innerHTML = !qs.length ? `<div class="pt-note">No questions asked yet.</div>`
+        : `<div class="pt-note">Jev answers these about every frame, in one request. Some depend on the step: moved needs the frame before, the stairs questions only come up between floors.</div>
+          <div class="pt-rows">${qs.map(([k, q]) => row(k, esc(q))).join("")}</div>`;
+    } else if (state.tab === "rules") {
+      const t = r.totals || {};
+      const rules = Object.entries(t.rules || {}).sort((a, b) => b[1] - a[1]);
+      const max = Math.max(1, ...rules.map(([, c]) => c));
+      const stats = [];
+      if (t.turns != null) stats.push(`${t.turns} turn${t.turns === 1 ? "" : "s"} (${num(t.turn_deg, 0)}°)`);
+      if (t.walked_m) stats.push(`walked ${num(t.walked_m)} m`);
+      if (t.first_seen) stats.push(`first seen at step ${t.first_seen}`);
+      const many = (n, one, more) => `${n} ${n === 1 ? one : more}`;
+      if (t.uses) stats.push(many(t.uses, "use", "uses"));
+      if (t.stuck) stats.push(`stuck ${many(t.stuck, "time", "times")}`);
+      if (t.cut_short) stats.push(`${many(t.cut_short, "move", "moves")} cut short`);
+      if (t.jev_errors) stats.push(many(t.jev_errors, "Jev error", "Jev errors"));
+      body.innerHTML = !rules.length ? `<div class="pt-note">No steps yet.</div>`
+        : `<div class="pt-rows">${rules.map(([name, c]) => `<div class="pt-row is-rule"><span><span class="pt-rule">${esc(name)}</span></span>
+          <span>${bar(c / max, 0)}<div class="pt-row__sub">${esc(RULES[name] || "")}</div></span><span class="pt-row__n">${c}</span></div>`).join("")}</div>
+          ${stats.length ? `<div class="pt-stats">${stats.map((s) => `<span>${esc(s)}</span>`).join("")}</div>` : ""}`;
+    } else if (state.tab === "log") {
+      const rows = [{ t: 0, kind: "start", text: `${ORIGIN[r.origin] || r.origin || "run"} started it` }];
+      for (const e of r.events || []) rows.push({ t: e.t, kind: e.kind, text: eventText(e) });
+      if (r.ended && r.started) rows.push({ t: r.ended - r.started, kind: "end", text: `${r.status}${r.reason ? ": " + r.reason : ""}` });
+      const tone = { start: "dk-badge--info", end: BADGE[TONE[r.status]] || "", print: "dk-badge--info", cut_short: "dk-badge--warn", jev_error: "dk-badge--danger", released: "dk-badge--warn" };
+      body.innerHTML = `<div class="pt-rows">${rows.map((e) => `<div class="pt-row is-log"><span class="pt-mono dk-muted">${num(e.t)} s</span>
+        <span><span class="dk-badge ${tone[e.kind] || ""}">${esc(e.kind)}</span></span><span class="pt-row__v">${esc(e.text)}</span></div>`).join("")}</div>`;
+    } else {
+      const s = r.settings || {};
+      const tk = r.tokens || {};
+      body.innerHTML = `<div class="pt-rows">
+        ${row("model", esc(r.model || ""), "the Jev model that reads each frame")}
+        ${s.confidence != null ? row("confidence", pct(s.confidence), "answers below this count as no") : ""}
+        ${s.counts != null ? row("mouse", `${esc(s.counts)} counts per 90°`, "the beacon corrects it while turning") : ""}
+        ${s.size != null ? row("frame size", `${esc(s.size)} px`, "the screenshot width sent to Jev") : ""}
+        ${r.smooth != null ? row("smooth walk", r.smooth ? "on" : "off", "walk and turn at the same time") : ""}
+        ${r.click_focus != null ? row("click to focus", r.click_focus ? "on" : "off", "clicks Fortnite to bring it to the front") : ""}
+        ${row("tokens", `${esc(tk.input || 0)} in, ${esc(tk.output || 0)} out`)}
+      </div>`;
+    }
+  }
+
+  function eventText(e) {
+    if (e.kind === "print") return `Verse printed: ${e.text}`;
+    if (e.kind === "focus") return e.ok ? `Brought Fortnite to the front (${e.method || "focus"}${e.ms != null ? `, ${e.ms} ms` : ""})` : `Couldn't bring Fortnite to the front (${e.method || "focus"})`;
+    if (e.kind === "jev_error") return `${e.status ? `HTTP ${e.status}: ` : ""}${e.error || ""}`;
+    if (e.kind === "cut_short") return `step ${e.step}: ${e.why}`;
+    if (e.text || e.why) return e.text || e.why;
+    const { t, kind, ...rest } = e;
+    return JSON.stringify(rest);
   }
 
   // ------------------------------------------------------------------ runs + status
@@ -429,74 +733,59 @@
     state.steps = [];
     state.run = null;
     state.selected = 0;
-    if (!state.runId) {
-      renderTimeline();
-      select(0);
-      paintRun();
-      return;
-    }
-    try {
-      const out = await rpc("get_run", { run_id: state.runId });
-      if (out && out.ok) {
-        const { steps, ...meta } = out.run;
-        state.run = meta;
-        state.steps = steps || [];
+    if (state.runId) {
+      try {
+        const out = await rpc("get_run", { run_id: state.runId });
+        if (out && out.ok) {
+          const { steps, ...meta } = out.run;
+          state.run = meta;
+          state.steps = steps || [];
+        }
+      } catch (err) {
+        showErr(err.message);
       }
-    } catch (err) {
-      showErr(err.message);
     }
     renderTimeline();
+    paintBrief();
+    paintOrders();
     const last = state.steps[state.steps.length - 1];
     select(last ? last.n : 0);
-    paintRun();
   }
 
-  function paintRun() {
-    const r = state.run;
-    const badge = $("bRun");
-    const running = !!(r && (r.status === "running" || r.status === "stopping"));
-    badge.className = "dk-badge " + (STATUS_BADGE[r && r.status] || "");
-    if (!r) badge.textContent = "Idle";
-    else if (r.id === "manual") badge.textContent = "Single actions";
-    else if (running) badge.textContent = `Playing · step ${r.n_steps || 0}/${r.max_steps || "?"} · ${Number(r.seconds || 0).toFixed(0)} s`;
-    else badge.textContent = `${r.status}${r.n_steps ? ` · ${r.n_steps} steps` : ""}${r.seconds ? ` · ${Number(r.seconds).toFixed(1)} s` : ""}`;
-    $("runInfo").textContent = r && r.id !== "manual"
-      ? `${r.goal || ""}${r.reason ? " — " + r.reason : ""}${r.avg_ms ? ` · avg step ${r.avg_ms} ms (Jev ${r.jev_ms} ms)` : ""}${r.dry_run ? " · dry run" : ""}`
-      : "";
-    const active = !!(state.status && state.status.active_run);
-    $("stopBtn").disabled = !(running || active);
-    $("startBtn").disabled = running || active;
+  function paintReady(st) {
+    const c = st.client || {}, j = st.jev || {}, b = st.beacon || {};
+    const checks = [
+      c.playing ? ["is-ok", "i-check", "In the island", ""]
+        : c.loading ? ["is-warn", "i-dot", "Fortnite is loading", "Wait until the island is in play mode."]
+        : ["is-bad", "i-x", "Fortnite isn't open", `${c.error ? esc(c.error) + ". " : ""}Agents can't play test until you press Launch Session in UEFN and the island loads.`],
+      j.key ? ["is-ok", "i-check", `Jev ${esc(j.model)}`, j.box ? "with box" : "no box: left, center or right only"]
+        : ["is-bad", "i-x", "No TypeSafe key", "Paste it in Settings → LLMs → TypeSafe."],
+      b.on ? ["is-ok", "i-check", "Beacon on", `${b.landmarks || 0} landmarks`]
+        : b.seen ? ["is-warn", "i-dot", `Beacon quiet ${Math.round(b.age_s || 0)} s`, "It stopped printing positions."]
+        : ["is-warn", "i-dot", "Beacon off", "Optional: without it there are no world positions, only the image."],
+    ];
+    const problem = !c.playing || !j.key;
+    $("ready").classList.toggle("pt-hidden", !problem);
+    $("ready").innerHTML = problem ? checks.map(([cls, ic, name, detail]) => `<div class="pt-check ${cls}"><span class="pt-check__icon">${icon(ic)}</span>
+      <span class="pt-check__text"><span class="pt-check__name">${name}</span>${detail ? `<span class="pt-check__detail">${detail}</span>` : ""}</span></div>`).join("") : "";
+    const pill = ([cls, , name]) => `<span class="dk-badge ${cls === "is-ok" ? "dk-badge--success" : cls === "is-bad" ? "dk-badge--danger" : "dk-badge--warn"}">${name}</span>`;
+    $("pills").innerHTML = problem ? "" : checks.map(pill).join("");
   }
 
   async function refreshStatus() {
     try {
       const st = await rpc("status");
       state.status = st;
-      const c = st.client || {};
-      const bc = $("bClient");
-      bc.className = "dk-badge " + (c.playing ? "dk-badge--success" : c.loading ? "dk-badge--warn" : "dk-badge--danger");
-      bc.textContent = c.playing ? "Fortnite: in the island" : c.loading ? "Fortnite: loading" : "Fortnite: not open";
-      bc.title = c.error || "";
-      const j = st.jev || {};
-      const bj = $("bJev");
-      bj.className = "dk-badge " + (j.key ? "dk-badge--success" : "dk-badge--danger");
-      bj.textContent = j.key ? `Jev: ${j.model}${j.box ? "" : " (no box)"}` : "Jev: no TypeSafe key";
-      bj.title = j.key ? "" : "Paste the TypeSafe key in Settings → LLMs → TypeSafe";
-      const b = st.beacon || {};
-      const bb = $("bBeacon");
-      bb.className = "dk-badge " + (b.on ? "dk-badge--success" : b.seen ? "dk-badge--warn" : "");
-      bb.textContent = b.on ? "Beacon: on" : b.seen ? `Beacon: quiet ${Math.round(b.age_s || 0)} s` : "Beacon: off";
-      bb.title = b.on ? "World coordinates on: targets behind buildings or upstairs are found" : "Add the Play Tester beacon device to the island to steer by world coordinates";
-      $("formMsg").textContent = st.ready ? "" : st.next || "";
-      paintRun();
-      if (!state.steps.length) showMap(null);
+      paintReady(st);
+      paintBrief();
+      if (!state.steps.length) select(0);
     } catch (err) {
       showErr(err.message);
     }
   }
 
   function showErr(msg) {
-    const el = $("formErr");
+    const el = $("err");
     el.textContent = msg || "";
     el.classList.toggle("pt-hidden", !msg);
   }
@@ -504,7 +793,6 @@
   function setFollow(on) {
     state.follow = on;
     $("follow").setAttribute("aria-pressed", on ? "true" : "false");
-    $("follow").className = "dk-btn " + (on ? "dk-btn--secondary" : "dk-btn--ghost");
   }
 
   // ------------------------------------------------------------------ live
@@ -513,7 +801,7 @@
     if (ev.thumb) state.thumbs.set(`${ev.run_id}:${ev.step.n}`, ev.thumb);
     if (ev.run_id !== state.runId) {
       if (state.follow && ev.run_id !== "manual") loadRuns(ev.run_id).then(openRun);
-      else if (state.follow && ev.run_id === "manual" && !(state.run && state.run.status === "running")) loadRuns("manual").then(openRun);
+      else if (state.follow && ev.run_id === "manual" && !running()) loadRuns("manual").then(openRun);
       return;
     }
     if (state.run) {
@@ -521,15 +809,19 @@
       state.run.status = ev.status;
     }
     addStep(ev.step);
-    paintRun();
+    paintBrief();
   }
 
   function onRun(ev) {
     const r = ev.run || {};
     if (r.id === state.runId) {
       state.run = { ...(state.run || {}), ...r };
-      paintRun();
-      if (DONE.includes(r.status)) loadRuns(state.runId);
+      paintBrief();
+      showOverlay(state.steps.find((s) => s.n === state.selected) || null);  // the Live chip goes when it ends
+      if (DONE.includes(r.status)) {
+        loadRuns(state.runId);
+        refetchRun();  // the finished doc has the end, the totals and the full log
+      }
     } else if (state.follow && r.status === "running") {
       loadRuns(r.id).then(openRun);
     } else {
@@ -538,22 +830,26 @@
     refreshStatus();
   }
 
+  async function refetchRun() {
+    const last = state.steps.length ? state.steps[state.steps.length - 1].n : 0;
+    try {
+      const out = await rpc("get_run", { run_id: state.runId, from_step: last });
+      if (out && out.ok) {
+        const { steps, ...meta } = out.run;
+        state.run = { ...(state.run || {}), ...meta };
+        for (const s of steps || []) addStep(s);
+        paintBrief();
+        paintOrders();
+      }
+    } catch (_) { /* next tick */ }
+  }
+
   async function poll() {
     if (!state.visible) return;
     const now = Date.now();
-    const running = state.run && (state.run.status === "running" || state.run.status === "stopping");
-    if (running && state.runId && now - state.lastPoll > 1400) {
+    if (running() && state.runId && now - state.lastPoll > 1400) {
       state.lastPoll = now;
-      const last = state.steps.length ? state.steps[state.steps.length - 1].n : 0;
-      try {
-        const out = await rpc("get_run", { run_id: state.runId, from_step: last });
-        if (out && out.ok) {
-          const { steps, ...meta } = out.run;
-          state.run = { ...(state.run || {}), ...meta };
-          for (const s of steps || []) addStep(s);
-          paintRun();
-        }
-      } catch (_) { /* next tick */ }
+      await refetchRun();
     }
   }
 
@@ -570,44 +866,11 @@
     }
   });
 
-  // ------------------------------------------------------------------ form
-
-  $("goalForm").addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    const goal = $("fGoal").value.trim();
-    const target = $("fTarget").value.trim();
-    const actor = $("fActor").value.trim();
-    if (!goal && !target && !actor) {
-      showErr("Give a goal, a target or a level actor.");
-      $("fGoal").focus();
-      return;
-    }
-    showErr("");
-    $("startBtn").disabled = true;
-    try {
-      const out = await rpc("run", {
-        goal, target, target_actor: actor, success: $("fSuccess").value.trim(), success_print: $("fPrint").value.trim(),
-        interact: $("fInteract").checked, dry_run: $("fDry").checked,
-      });
-      if (out && out.ok === false) {
-        showErr(out.error);
-      } else if (out && out.run_id) {
-        setFollow(true);
-        call("prefs.set", { id: "last_goal", value: goal });
-        call("prefs.set", { id: "last_target", value: target });
-        call("prefs.set", { id: "last_actor", value: actor });
-        await loadRuns(out.run_id);
-        await openRun(out.run_id);
-      }
-    } catch (err) {
-      showErr(err.message);
-    }
-    refreshStatus();
-  });
+  // ------------------------------------------------------------------ controls
 
   $("stopBtn").addEventListener("click", async () => {
     try {
-      const out = await rpc("stop", { run_id: state.run && state.run.status === "running" ? state.runId : "" });
+      const out = await rpc("stop", { run_id: running() ? state.runId : "" });
       if (out && out.ok === false) showErr(out.error);
     } catch (err) {
       showErr(err.message);
@@ -619,6 +882,27 @@
     setFollow(!state.follow);
     if (state.follow) loadRuns("").then(openRun);
   });
+  $("ovTR").addEventListener("click", (ev) => {
+    if (!ev.target.closest("[data-live]")) return;
+    setFollow(true);
+    const last = state.steps[state.steps.length - 1];
+    if (last) select(last.n);
+  });
+  $("ordersBtn").addEventListener("click", () => { state.orders = !state.orders; paintBrief(); paintOrders(); });
+  $("orderTabs").addEventListener("click", (ev) => {
+    const b = ev.target.closest("[data-tab]");
+    if (b) { state.tab = b.dataset.tab; paintOrders(); }
+  });
+  $("stepBtn").addEventListener("click", () => {
+    state.stepOpen = !state.stepOpen;
+    showStepData(state.steps.find((s) => s.n === state.selected) || null);
+  });
+  $("prev").addEventListener("click", () => move(-1));
+  $("next").addEventListener("click", () => move(1));
+  $("film").addEventListener("keydown", (ev) => {
+    if (ev.key === "ArrowLeft") { ev.preventDefault(); move(-1); }
+    else if (ev.key === "ArrowRight") { ev.preventDefault(); move(1); }
+  });
 
   // ------------------------------------------------------------------ start
 
@@ -626,13 +910,6 @@
     buildKeys();
     showPressing(null);
     showAnswers(null);
-    try {
-      const prefs = await call("prefs.get");
-      const p = (prefs && prefs.prefs) || {};
-      if (typeof p.last_goal === "string") $("fGoal").value = p.last_goal;
-      if (typeof p.last_target === "string") $("fTarget").value = p.last_target;
-      if (typeof p.last_actor === "string") $("fActor").value = p.last_actor;
-    } catch (_) { /* no saved goal */ }
     try {
       await call("plugin.subscribe", { types: ["playtester_step", "playtester_run"] });
     } catch (err) {
