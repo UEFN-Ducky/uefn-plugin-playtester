@@ -33,6 +33,10 @@ see a picture with your own eyes.
 
 1. `playtester_status()`: `ready` must be true. Otherwise its `next` says what is missing (no
    TypeSafe key, no Fortnite client, still loading). Say that to the person; don't press keys.
+   If `beacon.on` is false, set the beacon up before the play test (it stays in the level, so this
+   happens once per island): `playtester_beacon(add=true)` (does nothing when the file is already
+   there), build Verse, push changes, make sure one `playtester_beacon_device` is placed in the level,
+   then launch the session again. Tell the person in one line that you are adding it.
 2. `playtester_run(goal, target, success, interact)`:
    - `goal`: one plain sentence ("walk to the vending machine and use it").
    - `target`: the thing to walk to, as you would point at it ("the vending machine", "the red

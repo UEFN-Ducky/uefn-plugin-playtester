@@ -216,6 +216,7 @@ def register(api: Any) -> None:
         loading = bool(st.get("ok") and not playing)
         active = store.active()
         latest = store.latest()
+        bcn_state = beacon_state()
         if not key:
             nxt = jev.NO_KEY
         elif not st.get("ok"):
@@ -224,6 +225,10 @@ def register(api: Any) -> None:
             nxt = "Fortnite is loading the island: wait, then call playtester_status again."
         elif active:
             nxt = f"Run {active.get('run_id')} is playing: playtester_wait or playtester_stop."
+        elif not bcn_state["on"]:
+            nxt = ("Ready, but the beacon is off, so runs see only the image: set it up first "
+                   "(playtester_beacon(add=true), build Verse, push, place playtester_beacon_device, launch again), "
+                   "then call playtester_run(goal, target, success).")
         else:
             nxt = "Ready: call playtester_run(goal, target, success) to play test."
         return {
@@ -233,7 +238,7 @@ def register(api: Any) -> None:
                        "foreground": bool(st.get("foreground")), "loaded_for_s": age,
                        "error": None if st.get("ok") else st.get("error")},
             "jev": {"key": key, "model": cfg["model"], "box": client.box_ok(cfg["model"])},
-            "beacon": beacon_state(),
+            "beacon": bcn_state,
             "settings": {k: cfg[k] for k in ("counts", "max_steps", "confidence", "size", "click_focus", "smooth")},
             "map": {"landmarks": len(landmarks())},
             "island": the.island(),

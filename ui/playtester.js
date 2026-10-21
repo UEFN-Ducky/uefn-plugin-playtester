@@ -213,9 +213,6 @@
     $("dial").classList.toggle("is-on", !!turn);
     const label = turn ? `turn ${turn > 0 ? "right" : "left"} ${Math.abs(turn).toFixed(0)}°` : "no turn";
     $("dialLabel").textContent = dry && (turn || held.size) ? `${label} (dry run)` : label;
-    $("padHint").textContent = state.status && state.status.active_run
-      ? "Keys light up as the bot presses them."
-      : "When no run is playing, click a key or the dial to nudge the player by hand.";
   }
 
   // ------------------------------------------------------------------ position (map heading up)
@@ -259,7 +256,7 @@
       dot.classList.add("pt-hidden");
       line.classList.add("pt-hidden");
       $("mapBig").textContent = b.on ? "Waiting" : "No beacon";
-      $("mapSub").textContent = b.on ? "Positions show once a run starts" : "Jev steers by the image only";
+      $("mapSub").textContent = b.on ? "No run yet" : "Image only";
       showXyz(null, target);
       return;
     }
@@ -459,21 +456,10 @@
     if (step) return;
     const st = state.status || {};
     const c = st.client || {}, j = st.jev || {};
-    if (running()) {
-      el.innerHTML = `<div class="pt-setup__title">Starting the run</div><div class="pt-setup__body">Waiting for the first frame from Fortnite.</div>`;
-    } else if (!c.playing || !j.key) {
-      const item = (ok, now, text) => `<li class="${ok ? "is-done" : now ? "is-now" : ""}"><span class="n">${ok ? icon("i-check") : now ? "!" : "·"}</span><span>${text}</span></li>`;
-      el.innerHTML = `<div class="pt-setup__title">Get the island running</div>
-        <ol class="pt-checklist">
-          ${item(c.playing, !c.playing, c.loading ? "Fortnite is loading the island: wait for it" : "Press <b>Launch Session</b> in UEFN and wait for the island")}
-          ${item(j.key, !j.key, j.key ? `Jev is set up (${esc(j.model)})` : "Paste the TypeSafe key in Settings → LLMs → TypeSafe")}
-          ${item(false, false, "An agent starts a play test, and you watch it here")}
-        </ol>
-        <div class="dk-muted">This tab updates by itself.</div>`;
-    } else {
-      el.innerHTML = `<div class="pt-setup__title">Waiting for an agent</div>
-        <div class="pt-setup__body">When an agent calls <code>playtester_run</code>, every step shows here live: the frame Jev saw, its answers, the rule it used, the keys it pressed and where the player is in the world.</div>`;
-    }
+    const [ic, text] = running() ? ["i-play", "Starting…"]
+      : !c.playing || !j.key ? ["i-pad", c.loading ? "Fortnite is loading" : "Waiting for Fortnite"]
+      : ["i-bot", "Waiting for an agent"];
+    el.innerHTML = `<span class="pt-setup__icon">${icon(ic)}</span><div class="pt-setup__title">${text}</div>`;
   }
 
   function select(n) {
@@ -587,9 +573,9 @@
     if (!r) {
       $("briefIcon").className = "pt-brief__icon";
       $("briefIcon").innerHTML = icon("i-bot");
-      $("briefBy").textContent = active ? "A run is playing" : "No agent is play testing";
-      $("briefGoal").textContent = active ? "Loading the run…" : st.ready ? "Waiting for an agent to start a play test" : "Agents can play test once Fortnite is in the island";
-      $("briefOutcome").innerHTML = `Agents start runs from chat with <span class="pt-mono">playtester_run</span>. Their exact orders show here.`;
+      $("briefBy").textContent = "";
+      $("briefGoal").textContent = active ? "Loading the run…" : "No play test yet";
+      $("briefOutcome").textContent = active ? "" : "Agents start them from chat";
       return;
     }
     $("briefIcon").className = "pt-brief__icon" + (running() ? " pt-pulse" : "");
@@ -654,7 +640,7 @@
     } else if (state.tab === "questions") {
       const qs = Object.entries(r.question_text || {});
       body.innerHTML = !qs.length ? `<div class="pt-note">No questions asked yet.</div>`
-        : `<div class="pt-note">Jev answers these about every frame, in one request. Some depend on the step: moved needs the frame before, the stairs questions only come up between floors.</div>
+        : `<div class="pt-note">Asked about every frame, in one request.</div>
           <div class="pt-rows">${qs.map(([k, q]) => row(k, esc(q))).join("")}</div>`;
     } else if (state.tab === "rules") {
       const t = r.totals || {};
@@ -752,24 +738,28 @@
     select(last ? last.n : 0);
   }
 
+  // One short line per check; the "?" (or the pill) opens the explanation.
   function paintReady(st) {
     const c = st.client || {}, j = st.jev || {}, b = st.beacon || {};
+    const model = String(j.model || "").replace(/^jev-/, "");
     const checks = [
-      c.playing ? ["is-ok", "i-check", "In the island", ""]
-        : c.loading ? ["is-warn", "i-dot", "Fortnite is loading", "Wait until the island is in play mode."]
-        : ["is-bad", "i-x", "Fortnite isn't open", `${c.error ? esc(c.error) + ". " : ""}Agents can't play test until you press Launch Session in UEFN and the island loads.`],
-      j.key ? ["is-ok", "i-check", `Jev ${esc(j.model)}`, j.box ? "with box" : "no box: left, center or right only"]
-        : ["is-bad", "i-x", "No TypeSafe key", "Paste it in Settings → LLMs → TypeSafe."],
-      b.on ? ["is-ok", "i-check", "Beacon on", `${b.landmarks || 0} landmarks`]
-        : b.seen ? ["is-warn", "i-dot", `Beacon quiet ${Math.round(b.age_s || 0)} s`, "It stopped printing positions."]
-        : ["is-warn", "i-dot", "Beacon off", "Optional: without it there are no world positions, only the image."],
+      c.playing ? ["fortnite", "is-ok", "i-check", "In the island", ""]
+        : c.loading ? ["fortnite", "is-warn", "i-dot", "Fortnite is loading", "Wait for the island"]
+        : ["fortnite", "is-bad", "i-x", "Fortnite isn't open", "Launch Session in UEFN"],
+      j.key ? ["jev", "is-ok", "i-check", `Jev ${esc(model)}`, j.box ? "" : "No box"]
+        : ["jev", "is-bad", "i-x", "No Jev key", "Settings → LLMs → TypeSafe"],
+      b.on ? ["beacon", "is-ok", "i-check", "Beacon on", ""]
+        : b.seen ? ["beacon", "is-warn", "i-dot", "Beacon quiet", `No position for ${Math.round(b.age_s || 0)} s`]
+        : ["beacon", "is-warn", "i-dot", "Beacon off", "No world positions"],
     ];
     const problem = !c.playing || !j.key;
     $("ready").classList.toggle("pt-hidden", !problem);
-    $("ready").innerHTML = problem ? checks.map(([cls, ic, name, detail]) => `<div class="pt-check ${cls}"><span class="pt-check__icon">${icon(ic)}</span>
-      <span class="pt-check__text"><span class="pt-check__name">${name}</span>${detail ? `<span class="pt-check__detail">${detail}</span>` : ""}</span></div>`).join("") : "";
-    const pill = ([cls, , name]) => `<span class="dk-badge ${cls === "is-ok" ? "dk-badge--success" : cls === "is-bad" ? "dk-badge--danger" : "dk-badge--warn"}">${name}</span>`;
-    $("pills").innerHTML = problem ? "" : checks.map(pill).join("");
+    $("ready").innerHTML = problem ? checks.map(([key, cls, ic, name, detail]) => `<div class="pt-check ${cls}"><span class="pt-check__icon">${icon(ic)}</span>
+      <span class="pt-check__text"><span class="pt-check__name">${name}</span>${detail ? `<span class="pt-check__detail">${detail}</span>` : ""}</span>
+      <button type="button" class="pt-help" popovertarget="help-${key}" aria-label="What is this?">?</button></div>`).join("") : "";
+    const tone = { "is-ok": "dk-badge--success", "is-bad": "dk-badge--danger", "is-warn": "dk-badge--warn" };
+    $("pills").innerHTML = problem ? "" : checks.map(([key, cls, , name]) =>
+      `<button type="button" class="dk-badge ${tone[cls]} pt-pill" popovertarget="help-${key}" title="What is this?">${name}</button>`).join("");
   }
 
   async function refreshStatus() {

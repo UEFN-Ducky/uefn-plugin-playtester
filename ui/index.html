@@ -49,6 +49,7 @@
         <div class="pt-brief__acts">
           <span id="briefStatus" class="dk-badge pt-hidden"></span>
           <button id="stopBtn" type="button" class="dk-btn dk-btn--danger pt-hidden"><svg class="ico"><use href="#i-stop"/></svg>Stop</button>
+          <button type="button" class="pt-help" popovertarget="help-brief" aria-label="About this card">?</button>
         </div>
       </div>
       <div id="briefFacts" class="pt-facts"></div>
@@ -84,12 +85,14 @@
           <button id="prev" type="button" class="dk-btn dk-btn--ghost dk-btn--icon" aria-label="Previous step"><svg class="ico"><use href="#i-left"/></svg></button>
           <div id="film" class="pt-film__track" role="listbox" aria-label="Steps"></div>
           <button id="next" type="button" class="dk-btn dk-btn--ghost dk-btn--icon" aria-label="Next step"><svg class="ico"><use href="#i-right"/></svg></button>
+          <button type="button" class="pt-help" popovertarget="help-view" aria-label="About the frame and steps">?</button>
         </div>
       </section>
 
       <aside class="pt-side">
         <section class="dk-card">
-          <div class="pt-card-head"><span class="pt-label">Jev's move</span><span id="rule"></span><span class="pt-spacer"></span><span id="jevMs" class="dk-muted pt-mono"></span></div>
+          <div class="pt-card-head"><span class="pt-label">Jev's move</span><span id="rule"></span><span class="pt-spacer"></span><span id="jevMs" class="dk-muted pt-mono"></span>
+            <button type="button" class="pt-help" popovertarget="help-move" aria-label="About Jev's move">?</button></div>
           <div id="move" class="pt-move"></div>
           <div id="why" class="pt-why pt-hidden"></div>
           <div id="answers" class="pt-answers pt-hidden"></div>
@@ -101,7 +104,8 @@
         </section>
 
         <section class="dk-card">
-          <div class="pt-card-head"><span class="pt-label">Position</span><span class="pt-spacer"></span><span id="beaconTag" class="dk-muted"></span></div>
+          <div class="pt-card-head"><span class="pt-label">Position</span><span class="pt-spacer"></span><span id="beaconTag" class="dk-muted"></span>
+            <button type="button" class="pt-help" popovertarget="help-position" aria-label="About the position">?</button></div>
           <div class="pt-mapwrap">
             <svg id="map" class="pt-map" viewBox="-100 -100 200 200" role="img" aria-label="Top-down map around the player, facing up">
               <circle class="pt-map__ring" r="94"></circle>
@@ -122,7 +126,8 @@
         </section>
 
         <section class="dk-card">
-          <div class="pt-card-head"><span class="pt-label">Pressing</span><span class="pt-spacer"></span><span id="dialLabel" class="dk-muted">no turn</span></div>
+          <div class="pt-card-head"><span class="pt-label">Pressing</span><span class="pt-spacer"></span><span id="dialLabel" class="dk-muted">no turn</span>
+            <button type="button" class="pt-help" popovertarget="help-pressing" aria-label="About pressing">?</button></div>
           <div class="pt-pad">
             <div id="keys" class="pt-keys" aria-label="Keyboard keys pressed this step"></div>
             <div class="pt-mouse" aria-label="Mouse this step">
@@ -135,10 +140,51 @@
               </button>
             </div>
           </div>
-          <div id="padHint" class="pt-hint"></div>
         </section>
       </aside>
     </main>
+  </div>
+
+  <!-- What each "?" opens. Native popovers: click outside or Esc closes them. -->
+  <div id="help-fortnite" class="pt-pop" popover>
+    <div class="pt-pop__head"><b>Fortnite</b><button type="button" class="pt-pop__x" popovertarget="help-fortnite" popovertargetaction="hide" aria-label="Close"><svg class="ico"><use href="#i-x"/></svg></button></div>
+    <p>Play Tester plays the real Fortnite window that UEFN opens. In UEFN press <b>Launch Session</b> and wait for the island to load. This turns green by itself.</p>
+  </div>
+  <div id="help-jev" class="pt-pop" popover>
+    <div class="pt-pop__head"><b>Jev</b><button type="button" class="pt-pop__x" popovertarget="help-jev" popovertargetaction="hide" aria-label="Close"><svg class="ico"><use href="#i-x"/></svg></button></div>
+    <p>Jev is the vision model that looks at every frame and answers Play Tester's questions, like "is the target on screen?". It uses the TypeSafe key in <b>Settings → LLMs</b>.</p>
+    <p>"With box" means it can also draw a box around the target.</p>
+  </div>
+  <div id="help-beacon" class="pt-pop" popover>
+    <div class="pt-pop__head"><b>Beacon</b><button type="button" class="pt-pop__x" popovertarget="help-beacon" popovertargetaction="hide" aria-label="Close"><svg class="ico"><use href="#i-x"/></svg></button></div>
+    <p>A small Verse device in your island. A few times a second it writes where the player is and which way they face to the UEFN log, and Play Tester reads it.</p>
+    <p>With it, the bot knows how far and which way the target is, even behind a wall, behind the player or on another floor. Without it, Jev steers by the picture only.</p>
+    <p>Agents add it by themselves before a play test when it's off. You can also ask Ducky in chat: <q>Add the Play Tester beacon to my island.</q> It stays in the level after that.</p>
+  </div>
+  <div id="help-brief" class="pt-pop" popover>
+    <div class="pt-pop__head"><b>The agent's orders</b><button type="button" class="pt-pop__x" popovertarget="help-brief" popovertargetaction="hide" aria-label="Close"><svg class="ico"><use href="#i-x"/></svg></button></div>
+    <p>Agents start play tests from chat with <code>playtester_run</code>. This card shows what the agent asked for: the goal, the target, when it passes and the limits.</p>
+    <p><b>Show exact orders</b> opens the stored call, the questions Jev answers, the rules the bot used, the log and the settings. <b>Stop</b> ends a run at once.</p>
+  </div>
+  <div id="help-view" class="pt-pop" popover>
+    <div class="pt-pop__head"><b>What Jev saw</b><button type="button" class="pt-pop__x" popovertarget="help-view" popovertargetaction="hide" aria-label="Close"><svg class="ico"><use href="#i-x"/></svg></button></div>
+    <p>The frame Jev looked at in each step. The orange box is where Jev found the target, the arrow is the turn, and the chips at the bottom are the keys pressed.</p>
+    <p>Click a step in the strip (or use ← →) to look back. <b>Live</b> follows the newest step.</p>
+  </div>
+  <div id="help-move" class="pt-pop" popover>
+    <div class="pt-pop__head"><b>Jev's move</b><button type="button" class="pt-pop__x" popovertarget="help-move" popovertargetaction="hide" aria-label="Close"><svg class="ico"><use href="#i-x"/></svg></button></div>
+    <p>What the bot did this step and why, in its own words. The purple tag is the rule that picked the move.</p>
+    <p>The bars are Jev's answers from 0 to 100%. Answers under the confidence setting count as no. <b>Step data</b> shows the exact keys, mouse counts and Jev's raw answers.</p>
+  </div>
+  <div id="help-position" class="pt-pop" popover>
+    <div class="pt-pop__head"><b>Position</b><button type="button" class="pt-pop__x" popovertarget="help-position" popovertargetaction="hide" aria-label="Close"><svg class="ico"><use href="#i-x"/></svg></button></div>
+    <p>Where the player and the target are in the world, from the beacon. The map is seen from above with the player in the middle facing up. The orange dot is the target and grey dots are landmarks.</p>
+    <p>x, y and z are in centimetres. No beacon means no positions: the <b>Beacon</b> help says how to add it.</p>
+  </div>
+  <div id="help-pressing" class="pt-pop" popover>
+    <div class="pt-pop__head"><b>Pressing</b><button type="button" class="pt-pop__x" popovertarget="help-pressing" popovertargetaction="hide" aria-label="Close"><svg class="ico"><use href="#i-x"/></svg></button></div>
+    <p>The keys and mouse the bot used this step. Lit keys were pressed; outlined ones were only planned (dry run).</p>
+    <p>When no run is playing, click a key to press it for 0.3 s, or the left or right half of the dial to turn 30°.</p>
   </div>
   <script src="playtester.js"></script>
 </body>
