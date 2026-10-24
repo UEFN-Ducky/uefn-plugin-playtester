@@ -110,10 +110,21 @@ class Pilot:
             "smooth": s.get("smooth_walk") not in (False, "false", "0", 0),
         }
 
-    def _ready_client(self) -> dict[str, Any]:
-        """The client in play mode and in front, or {ok: False, error}."""
+    def _brain_problem(self) -> dict[str, Any] | None:
+        """{ok: False, error} when nothing can answer (no key, not signed in, no gateway), else None."""
+        ready = getattr(self.jev, "ready", None)
+        if callable(ready):
+            res = ready()
+            return None if res.get("ok") else res
         if not jev.api_key() and not getattr(self.jev, "_key", ""):
             return {"ok": False, "error": jev.NO_KEY, "needs_key": True}
+        return None
+
+    def _ready_client(self) -> dict[str, Any]:
+        """The client in play mode and in front, or {ok: False, error}."""
+        problem = self._brain_problem()
+        if problem:
+            return problem
         st = self.game.ready(True)
         if not st.get("ok"):
             return st
@@ -214,8 +225,9 @@ class Pilot:
         place = self.target_point(target_actor, target_xyz)
         if not place.get("ok"):
             return place
-        if not jev.api_key() and not getattr(self.jev, "_key", ""):
-            return {"ok": False, "error": jev.NO_KEY, "needs_key": True}
+        problem = self._brain_problem()
+        if problem:
+            return problem
         st = self.game.status()
         if not st.get("ok"):
             return st

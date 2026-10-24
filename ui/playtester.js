@@ -746,8 +746,9 @@
       c.playing ? ["fortnite", "is-ok", "i-check", "In the island", ""]
         : c.loading ? ["fortnite", "is-warn", "i-dot", "Fortnite is loading", "Wait for the island"]
         : ["fortnite", "is-bad", "i-x", "Fortnite isn't open", "Launch Session in UEFN"],
-      j.key ? ["jev", "is-ok", "i-check", `Jev ${esc(model)}`, j.box ? "" : "No box"]
-        : ["jev", "is-bad", "i-x", "No Jev key", "Settings → LLMs → TypeSafe"],
+      !j.key ? ["jev", "is-bad", "i-x", "No brain", "TypeSafe key, Ducky AI sign-in or a gateway model"]
+        : j.brain === "gateway" ? ["jev", "is-ok", "i-check", esc(j.gateway || "Gateway model"), "No box"]
+        : ["jev", "is-ok", "i-check", `Jev ${esc(model)}${j.brain === "ducky_ai" ? " · Ducky AI" : ""}`, j.box ? "" : "No box"],
       b.on ? ["beacon", "is-ok", "i-check", "Beacon on", ""]
         : b.seen ? ["beacon", "is-warn", "i-dot", "Beacon quiet", `No position for ${Math.round(b.age_s || 0)} s`]
         : ["beacon", "is-warn", "i-dot", "Beacon off", "No world positions"],

@@ -1,9 +1,9 @@
 {
   "id": "playtester",
   "kind": "plugin",
-  "version": "1.1.6",
+  "version": "1.1.7",
   "label": "Play Tester",
-  "description": "Plays the live Fortnite client with Jev vision and world coordinates: sees each frame, knows where the player and the target are (even behind a building or upstairs), decides moves in about a second, and shows every key, mouse turn and Jev decision live in its tab. Chat agents start in-game play tests with one tool call. Uses the TypeSafe key from Settings \u2192 LLMs.",
+  "description": "Plays the live Fortnite client with Jev vision and world coordinates: sees each frame, knows where the player and the target are (even behind a building or upstairs), decides moves in about a second, and shows every key, mouse turn and Jev decision live in its tab. Chat agents start in-game play tests with one tool call. Jev answers with your TypeSafe key or through Ducky AI; a gateway vision model works too.",
   "min_app_version": "1.2.390",
   "default_enabled": false,
   "data_sharing": false,
@@ -53,9 +53,48 @@
         "tab": "PlayTester",
         "id": "pilot",
         "title": "Jev pilot",
-        "description": "Play Tester asks Jev about every Fortnite frame and moves the player from its answers. The Jev key is the TypeSafe key under Settings \u2192 LLMs.",
+        "description": "Play Tester asks Jev about every Fortnite frame and moves the player from its answers. Jev runs on your TypeSafe key (Settings → LLMs) or through Ducky AI.",
         "order": 10,
         "properties": [
+          {
+            "id": "brain",
+            "type": "select",
+            "default": "auto",
+            "label": "Who answers",
+            "description": "Auto uses your TypeSafe key when one is saved, else Jev through Ducky AI when you are signed in, else the gateway model below (or your default model).",
+            "options": [
+              {
+                "value": "auto",
+                "label": "Auto"
+              },
+              {
+                "value": "typesafe",
+                "label": "Jev with my TypeSafe key"
+              },
+              {
+                "value": "ducky_ai",
+                "label": "Jev through Ducky AI"
+              },
+              {
+                "value": "gateway",
+                "label": "A gateway model (no box)"
+              }
+            ]
+          },
+          {
+            "id": "gateway",
+            "type": "string",
+            "default": "",
+            "label": "Gateway",
+            "description": "The gateway id for the gateway brain, for example openai or anthropic. Empty uses your default model."
+          },
+          {
+            "id": "gateway_model",
+            "type": "string",
+            "default": "",
+            "label": "Gateway model",
+            "description": "A model on that gateway that can see pictures, for example gpt-6-luna."
+          },
           {
             "id": "model",
             "type": "select",

@@ -11,7 +11,7 @@ import json
 import time
 from typing import Any
 
-from . import beacon, geo, jev, pilot, policy, questions, runs, screen
+from . import beacon, brains, geo, jev, pilot, policy, questions, runs, screen
 
 PLUGIN_ID = "playtester"
 INTENT = (
@@ -120,7 +120,7 @@ BEACON_HOW = (
 def register(api: Any) -> None:
     global _PILOT
     store = runs.Runs(api.data, api.local_dir("frames"))
-    client = jev.JevClient()
+    client = brains.Brain(jev.JevClient(), _settings)
     bcn = beacon.Beacon()
 
     def map_key() -> str:
@@ -210,7 +210,8 @@ def register(api: Any) -> None:
     def status() -> dict[str, Any]:
         st = screen.client()
         cfg = the.cfg()
-        key = bool(jev.api_key())
+        brain = client.ready()
+        key = bool(brain.get("ok"))
         age = st.get("loaded_for_s")
         playing = bool(st.get("ok") and st.get("gameplay_loaded") and (age or 0) >= screen.SETTLE_S)
         loading = bool(st.get("ok") and not playing)
@@ -218,7 +219,7 @@ def register(api: Any) -> None:
         latest = store.latest()
         bcn_state = beacon_state()
         if not key:
-            nxt = jev.NO_KEY
+            nxt = str(brain.get("error") or jev.NO_KEY)
         elif not st.get("ok"):
             nxt = str(st.get("error") or "No Fortnite client")
         elif loading:
@@ -237,7 +238,9 @@ def register(api: Any) -> None:
             "client": {"open": bool(st.get("ok")), "playing": playing, "loading": loading,
                        "foreground": bool(st.get("foreground")), "loaded_for_s": age,
                        "error": None if st.get("ok") else st.get("error")},
-            "jev": {"key": key, "model": cfg["model"], "box": client.box_ok(cfg["model"])},
+            "jev": {"key": key, "own_key": bool(jev.api_key()), "brain": brain.get("brain") or None,
+                    "choice": brain.get("choice"), "model": cfg["model"], "box": client.box_ok(cfg["model"]),
+                    "gateway": ":".join(brain["gateway"]) if brain.get("brain") == "gateway" else None},
             "beacon": bcn_state,
             "settings": {k: cfg[k] for k in ("counts", "max_steps", "confidence", "size", "click_focus", "smooth")},
             "map": {"landmarks": len(landmarks())},
@@ -527,7 +530,7 @@ def register(api: Any) -> None:
 
     @api.tool(intent=INTENT, listener=False)
     def playtester_status() -> dict:
-        """Check whether Play Tester can play test in game now: Fortnite client open and in play mode, Jev key saved, model, running test."""
+        """Check whether Play Tester can play test in game now: Fortnite client open and in play mode, which brain answers (TypeSafe key, Ducky AI or a gateway), model, running test."""
         return status()
 
     @api.tool(intent=INTENT, listener=False)
