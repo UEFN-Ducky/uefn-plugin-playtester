@@ -43,8 +43,35 @@ def signed_in() -> bool:
         return False
 
 
+def split_model(provider: str, model: str) -> tuple[str, str]:
+    """('uefn_ducky', 'ducky-ai') from a provider + model, or a qualified 'backend:model'. Pure."""
+    provider, model = str(provider or "").strip().lower(), str(model or "").strip()
+    if ":" in model and not provider:
+        head, _, tail = model.partition(":")
+        return head.strip().lower(), tail.strip()
+    return provider, model
+
+
+def chat_model() -> tuple[str, str]:
+    """(provider, model) of the chat whose agent called this tool; ('', '') outside a chat."""
+    try:
+        from backend.agent.hammer_guard import current_conversation
+        from frontend.ui_web.project_chats import load_conversation_meta
+
+        conv_id = current_conversation()
+        conv = load_conversation_meta(conv_id) if conv_id else None
+    except Exception:
+        return "", ""
+    if conv is None:
+        return "", ""
+    return split_model(getattr(conv, "provider", ""), getattr(conv, "model", ""))
+
+
 def app_model() -> tuple[str, str]:
-    """(provider, model) the app's chats default to; ('', '') when unknown."""
+    """(provider, model) of the calling chat, else what the app's chats default to; ('', '') when unknown."""
+    provider, model = chat_model()
+    if provider:
+        return provider, model
     try:
         from frontend.settings import PanelSettings
 

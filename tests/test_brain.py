@@ -32,6 +32,12 @@ def test_gateway_reply_becomes_jev_answers():
     assert "box" not in brains.gateway_prompt({"frame": "f"}, Q, ["f"])
 
 
+def test_chat_models_read_either_way():
+    assert brains.split_model("uefn_ducky", "ducky-ai") == ("uefn_ducky", "ducky-ai")
+    assert brains.split_model("", "uefn_ducky:ducky-ai") == ("uefn_ducky", "ducky-ai")
+    assert brains.split_model("", "") == ("", "")
+
+
 def test_ducky_ai_as_the_app_model_beats_a_saved_key():
     b, calls = _brain(key="k")
     b._app_model = lambda: ("uefn_ducky", "ducky-ai")
