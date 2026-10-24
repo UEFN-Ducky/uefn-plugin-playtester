@@ -69,8 +69,10 @@ class Pilot:
                  locate: Callable[[str], dict[str, Any]] | None = None,
                  save_setting: Callable[[str, Any], None] | None = None,
                  island: Callable[[], str] | None = None,
-                 landmarks: Callable[[], list[dict[str, Any]]] | None = None) -> None:
+                 landmarks: Callable[[], list[dict[str, Any]]] | None = None,
+                 recorder: Any = None) -> None:
         self.runs = store
+        self.recorder = recorder  # record.MediaKitRecorder: start(run_id) -> capture id | None, stop(id) -> dict
         self.jev = client
         self.game = game if game is not None else Game()
         self._push = push
@@ -215,7 +217,8 @@ class Pilot:
 
     def start(self, *, goal: str = "", target: str = "", success: str = "", interact: bool = False,
               max_steps: int = 0, max_seconds: float = 0, dry_run: bool = False, origin: str = "tool",
-              target_actor: str = "", target_xyz: Any = "", success_print: str = "") -> dict[str, Any]:
+              target_actor: str = "", target_xyz: Any = "", success_print: str = "",
+              record: bool = False) -> dict[str, Any]:
         goal, target, success = (goal or "").strip(), (target or "").strip(), (success or "").strip()
         success_print = (success_print or "").strip()
         if not goal and not target and not target_actor and target_xyz in ("", None):
@@ -258,6 +261,8 @@ class Pilot:
             "success_print": success_print, "smooth": cfg["smooth"] and not dry_run,
         }
         self.runs.clear_stop(run_id)
+        if record and self.recorder is not None:
+            run["record_id"] = self.recorder.start(run_id)  # None: Media Kit isn't there, play anyway
         self.runs.save(run)
         stop = threading.Event()
         self._events[run_id] = stop
@@ -268,6 +273,8 @@ class Pilot:
         out = {"ok": True, "run_id": run_id, "status": "running", "goal": goal, "dry_run": bool(dry_run),
                "max_steps": run["max_steps"], "model": cfg["model"], "coordinates": bool(run["target_point"] and run["beacon"]),
                "island": island}
+        if record:
+            out["recording"] = bool(run.get("record_id"))
         if seeded:
             out["memory_used"] = seeded
             if seeded.get("warn"):
@@ -379,6 +386,11 @@ class Pilot:
         run["reason"] = reason
         run["ended"] = time.time()
         run["seconds"] = round(run["ended"] - float(run["started"]), 1)
+        if run.get("record_id") and self.recorder is not None:
+            try:
+                run.update(self.recorder.stop(run["record_id"]))
+            except Exception as exc:  # a failed stop never fails the run
+                run["clip_error"] = str(exc)[:200]
         self.runs.save(run)
         self.learn(run)
         self.push({"type": "playtester_run", "run": runs.summary(run)})

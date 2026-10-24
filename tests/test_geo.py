@@ -226,7 +226,10 @@ def test_run_steers_by_coordinates_and_learns_the_mouse(tmp_path):
                       save_setting=lambda k, v: saved.__setitem__(k, v))
     out = the.start(goal="walk to the button", target="the button", target_actor="Button_1")
     assert out["ok"] and out["coordinates"]
+    thread = the._threads.get(out["run_id"])
     run = tp.wait_done(the, out["run_id"], 20)
+    if thread:  # the learned mouse speed is saved in the loop's finally, just after the run is marked done
+        thread.join(5)
     assert run["status"] == "success", (run["reason"], [s["why"] for s in run["steps"]])
     first = run["steps"][0]
     assert first["where"]["rel"]["side"] == "behind" and "behind you" in first["why"]

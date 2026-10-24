@@ -23,7 +23,7 @@ DONE = ("success", "failed", "blocked", "stopped", "timeout", "done")
 _ID = re.compile(r"[^a-z0-9-]+")
 _SUMMARY = ("id", "goal", "target", "success", "interact", "dry_run", "model", "status", "reason",
             "started", "ended", "n_steps", "seconds", "avg_ms", "jev_ms", "last_frame", "origin",
-            "target_actor", "target_point", "beacon")
+            "target_actor", "target_point", "beacon", "clip_id", "clip_file", "clip_error")
 
 
 def clean_id(run_id: Any) -> str:

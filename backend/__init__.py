@@ -11,7 +11,7 @@ import json
 import time
 from typing import Any
 
-from . import beacon, brains, geo, jev, pilot, policy, questions, runs, screen
+from . import beacon, brains, geo, jev, pilot, policy, questions, record, runs, screen
 
 PLUGIN_ID = "playtester"
 INTENT = (
@@ -187,7 +187,8 @@ def register(api: Any) -> None:
         return {"ok": True, "point": pt, "label": str(row.get("label"))}
 
     the = pilot.Pilot(store, client, push=_push, settings=_settings, beacon=bcn, locate=locate,
-                      save_setting=_save_setting, island=_island, landmarks=landmarks)
+                      save_setting=_save_setting, island=_island, landmarks=landmarks,
+                      recorder=record.MediaKitRecorder(api))
     _PILOT = the
 
     def beacon_state() -> dict[str, Any]:
@@ -470,10 +471,11 @@ def register(api: Any) -> None:
 
     def run(goal: str = "", target: str = "", success: str = "", interact: Any = False, max_steps: Any = 0,
             max_seconds: Any = 0, dry_run: Any = False, wait_s: Any = 20, origin: str = "tool",
-            target_actor: str = "", target_xyz: Any = "", success_print: str = "") -> dict[str, Any]:
+            target_actor: str = "", target_xyz: Any = "", success_print: str = "", record: Any = False) -> dict[str, Any]:
         started = the.start(goal=goal, target=target, success=success, interact=_bool(interact),
                             max_steps=int(_num(max_steps)), max_seconds=_num(max_seconds), dry_run=_bool(dry_run),
-                            origin=origin, target_actor=target_actor, target_xyz=target_xyz, success_print=success_print)
+                            origin=origin, target_actor=target_actor, target_xyz=target_xyz, success_print=success_print,
+                            record=_bool(record))
         if not started.get("ok"):
             return started
         wait = min(25.0, max(0.0, _num(wait_s, 20)))
@@ -536,7 +538,7 @@ def register(api: Any) -> None:
     @api.tool(intent=INTENT, listener=False)
     def playtester_run(goal: str = "", target: str = "", success: str = "", interact: bool = False,
                        max_steps: int = 0, max_seconds: float = 0, dry_run: bool = False, wait_s: float = 20,
-                       target_actor: str = "", target_xyz: str = "", success_print: str = "") -> dict:
+                       target_actor: str = "", target_xyz: str = "", success_print: str = "", record: bool = False) -> dict:
         """Play test in game: Jev drives the Fortnite player toward a goal about once a second and returns what happened.
 
         goal: what to do ("walk to the red button and press it"). target: the thing to walk to
@@ -547,10 +549,12 @@ def register(api: Any) -> None:
         holds twice. success_print: text a Verse Print shows when the test passed ("coin collected",
         "[PTEVENT] door open"); the run passes the moment the island prints it, exact and instant.
         interact: hold E at the target. dry_run: decide and show moves without pressing
-        anything. Waits up to wait_s (max 25) and returns the result or the run id to playtester_wait on.
+        anything. record: film the run with Island Media Kit (skipped when it isn't installed); the result's
+        clip_id and clip_file name the recording. Waits up to wait_s (max 25) and returns the result or the run
+        id to playtester_wait on.
         """
         return run(goal, target, success, interact, max_steps, max_seconds, dry_run, wait_s, "tool", target_actor, target_xyz,
-                   success_print)
+                   success_print, record)
 
     @api.tool(intent=INTENT, listener=False)
     def playtester_map(refresh: bool = False) -> dict:
