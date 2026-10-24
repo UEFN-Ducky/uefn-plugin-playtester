@@ -16,6 +16,9 @@ def test_auto_order_is_key_then_ducky_ai_then_gateway():
     assert brains.pick("auto", False, False, False) == ""
     assert brains.pick("ducky_ai", True, False, False) == "ducky_ai", "an explicit pick is kept"
     assert brains.pick("nonsense", False, True, False) == "ducky_ai"
+    assert brains.pick("auto", True, True, True, ducky_selected=True) == "ducky_ai", "Ducky AI picked: Jev goes through it"
+    assert brains.pick("auto", True, False, True, ducky_selected=True) == "typesafe", "Ducky AI refused: own key"
+    assert brains.pick("typesafe", True, True, True, ducky_selected=True) == "typesafe", "an explicit pick wins"
 
 
 def test_gateway_reply_becomes_jev_answers():
@@ -27,6 +30,16 @@ def test_gateway_reply_becomes_jev_answers():
     assert brains.parse_gateway_answers('{"where": {"choice": "up"}}', Q) == {}, "unknown option dropped"
     assert brains.parse_gateway_answers('{"seen": 0.4}', Q)["seen"]["noul"] == 0.4
     assert "box" not in brains.gateway_prompt({"frame": "f"}, Q, ["f"])
+
+
+def test_ducky_ai_as_the_app_model_beats_a_saved_key():
+    b, calls = _brain(key="k")
+    b._app_model = lambda: ("uefn_ducky", "ducky-ai")
+    assert b.ready()["brain"] == "ducky_ai"
+    b.decide({"frame": "f"}, Q, {"f": b"jpg"})
+    assert calls[-1][0] == "ducky_ai"
+    b._app_model = lambda: ("anthropic", "claude-opus-5-5")
+    assert b.ready()["brain"] == "typesafe"
 
 
 def _brain(key="", signed=True, ducky=None, gateway=None, settings=None):
@@ -41,7 +54,8 @@ def _brain(key="", signed=True, ducky=None, gateway=None, settings=None):
         return gateway or {"ok": True, "answers": {}, "model": f"{provider}:{model}"}
 
     b = brains.Brain(jev.JevClient(key="unused"), lambda: settings or {"gateway": "openai", "gateway_model": "gpt-6-luna"},
-                     ducky=fake_ducky, gateway=fake_gateway, signed=lambda: signed, key=lambda: key)
+                     ducky=fake_ducky, gateway=fake_gateway, signed=lambda: signed, key=lambda: key,
+                     model=lambda: ("", ""))
     return b, calls
 
 

@@ -43,13 +43,8 @@ def signed_in() -> bool:
         return False
 
 
-def gateway_target(settings: dict[str, Any]) -> tuple[str, str]:
-    """(provider, model) for the gateway brain: Play Tester's pick, else the app's default model.
-    Ducky AI's chat model is skipped: its frames go to Jev instead."""
-    provider = str(settings.get("gateway") or "").strip().lower()
-    model = str(settings.get("gateway_model") or "").strip()
-    if provider and model:
-        return provider, model
+def app_model() -> tuple[str, str]:
+    """(provider, model) the app's chats default to; ('', '') when unknown."""
     try:
         from frontend.settings import PanelSettings
 
@@ -58,19 +53,33 @@ def gateway_target(settings: dict[str, Any]) -> tuple[str, str]:
         if ":" in qualified:
             provider, model = (part.strip() for part in qualified.split(":", 1))
         else:
-            provider, model = str(s.agent_provider or "").strip().lower(), str(s.agent_model or "").strip()
+            provider, model = str(s.agent_provider or "").strip(), str(s.agent_model or "").strip()
     except Exception:
         return "", ""
+    return provider.lower(), model
+
+
+def gateway_target(settings: dict[str, Any]) -> tuple[str, str]:
+    """(provider, model) for the gateway brain: Play Tester's pick, else the app's default model.
+    Ducky AI's chat model is skipped: its frames go to Jev instead."""
+    provider = str(settings.get("gateway") or "").strip().lower()
+    model = str(settings.get("gateway_model") or "").strip()
+    if provider and model:
+        return provider, model
+    provider, model = app_model()
     if provider == DUCKY_AI_PROVIDER or not (provider and model):
         return "", ""
     return provider.lower(), model
 
 
-def pick(choice: str, has_key: bool, ducky_ok: bool, has_gateway: bool) -> str:
-    """The brain that answers now, or '' when none can. Pure."""
+def pick(choice: str, has_key: bool, ducky_ok: bool, has_gateway: bool, ducky_selected: bool = False) -> str:
+    """The brain that answers now, or '' when none can. Pure. Auto follows Ducky AI first when
+    it is the app's model (Jev runs through Ducky AI then, even with a TypeSafe key saved)."""
     choice = choice if choice in BRAINS else "auto"
     if choice != "auto":
         return choice
+    if ducky_selected and ducky_ok:
+        return "ducky_ai"
     if has_key:
         return "typesafe"
     if ducky_ok:
@@ -216,13 +225,15 @@ class Brain:
 
     def __init__(self, client: jev.JevClient | None = None, settings: Callable[[], dict[str, Any]] | None = None,
                  *, ducky: Callable[..., dict[str, Any]] | None = None, gateway: Callable[..., dict[str, Any]] | None = None,
-                 signed: Callable[[], bool] | None = None, key: Callable[[], str] | None = None) -> None:
+                 signed: Callable[[], bool] | None = None, key: Callable[[], str] | None = None,
+                 model: Callable[[], tuple[str, str]] | None = None) -> None:
         self.client = client or jev.JevClient()
         self._settings = settings or (lambda: {})
         self._ducky = ducky or ducky_decide
         self._gateway = gateway or gateway_decide
         self._signed = signed or signed_in
         self._key = key or jev.api_key
+        self._app_model = model or app_model
         self._refused_at = float("-inf")
         self._lock = threading.Lock()
 
@@ -240,7 +251,9 @@ class Brain:
         with self._lock:
             refused = time.monotonic() - self._refused_at < REFUSED_S
         target = gateway_target(s)
-        brain = pick(choice, bool((self._key() or "").strip()), self._signed() and not refused, bool(target[0]))
+        ducky_selected = self._app_model()[0] == DUCKY_AI_PROVIDER
+        brain = pick(choice, bool((self._key() or "").strip()), self._signed() and not refused, bool(target[0]),
+                     ducky_selected)
         return {"brain": brain, "choice": choice if choice in BRAINS else "auto", "gateway": target}
 
     def ready(self) -> dict[str, Any]:

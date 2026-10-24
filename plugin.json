@@ -1,7 +1,7 @@
 {
   "id": "playtester",
   "kind": "plugin",
-  "version": "1.1.7",
+  "version": "1.1.8",
   "label": "Play Tester",
   "description": "Plays the live Fortnite client with Jev vision and world coordinates: sees each frame, knows where the player and the target are (even behind a building or upstairs), decides moves in about a second, and shows every key, mouse turn and Jev decision live in its tab. Chat agents start in-game play tests with one tool call. Jev answers with your TypeSafe key or through Ducky AI; a gateway vision model works too.",
   "min_app_version": "1.2.390",
@@ -61,7 +61,7 @@
             "type": "select",
             "default": "auto",
             "label": "Who answers",
-            "description": "Auto uses your TypeSafe key when one is saved, else Jev through Ducky AI when you are signed in, else the gateway model below (or your default model).",
+            "description": "Auto: when Ducky AI is your model, Jev runs through Ducky AI; otherwise your TypeSafe key when one is saved, else Ducky AI when you are signed in, else the gateway model below (or your default model).",
             "options": [
               {
                 "value": "auto",
