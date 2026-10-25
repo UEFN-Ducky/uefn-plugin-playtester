@@ -27,6 +27,8 @@ from . import jev
 BRAINS = ("auto", "typesafe", "ducky_ai", "gateway")
 DUCKY_AI_PATH = "/api/v1/plugins/uefn-ducky/collect/jev-decide"
 DUCKY_AI_PROVIDER = "uefn_ducky"
+# Auto's row in the model picker (its own group, so it can't match a gateway's 'auto' model).
+AUTO_PICK = "playtester:auto"
 # ponytail: a refused Ducky AI (no plan, used up, not set up) is skipped this long under Auto.
 REFUSED_S = 300.0
 NO_BRAIN = ("No brain for Play Tester: save a TypeSafe key (Settings → LLMs → TypeSafe), sign in to "
@@ -116,11 +118,11 @@ def pick(choice: str, has_key: bool, ducky_ok: bool, has_gateway: bool, ducky_se
 
 def from_pick(pick: str) -> dict[str, str] | None:
     """The settings a model-picker pick stands for, or None when it is empty. Pure.
-    'auto' | 'typesafe:<jev>' | 'uefn_ducky:<jev>' (Jev through Ducky AI) | '<gateway>:<model>'."""
+    'playtester:auto' | 'typesafe:<jev>' | 'uefn_ducky:<jev>' (Jev through Ducky AI) | '<gateway>:<model>'."""
     pick = str(pick or "").strip()
     if not pick:
         return None
-    if pick.lower() == "auto":
+    if pick.lower() in ("auto", AUTO_PICK):
         return {"brain": "auto"}
     provider, _, model = pick.partition(":")
     provider, model = provider.strip().lower(), model.strip()
@@ -143,7 +145,7 @@ def to_pick(settings: dict[str, Any]) -> str:
         return f"{DUCKY_AI_PROVIDER}:{model}"
     if brain == "gateway" and settings.get("gateway") and settings.get("gateway_model"):
         return f"{settings['gateway']}:{settings['gateway_model']}"
-    return "auto"
+    return AUTO_PICK
 
 
 # --------------------------------------------------------------------------- Ducky AI
