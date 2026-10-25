@@ -263,6 +263,7 @@ class Brain:
         self._app_model = model or app_model
         self._refused_at = float("-inf")
         self._lock = threading.Lock()
+        self.last_brain = ""  # who answered the last frame (the tab shows it during a run)
 
     @property
     def no_box(self) -> set[str]:
@@ -298,6 +299,13 @@ class Brain:
 
     def decide(self, state: Any, questions: dict[str, Any], images: dict[str, bytes] | None = None,
                model: str = "") -> dict[str, Any]:
+        res = self._decide(state, questions, images, model)
+        if res.get("brain"):
+            self.last_brain = str(res["brain"])
+        return res
+
+    def _decide(self, state: Any, questions: dict[str, Any], images: dict[str, bytes] | None = None,
+                model: str = "") -> dict[str, Any]:
         problem = jev.check_questions(questions)
         if problem:
             return {"ok": False, "error": problem}

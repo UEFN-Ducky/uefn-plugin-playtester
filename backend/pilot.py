@@ -9,6 +9,7 @@ released on every way out.
 
 from __future__ import annotations
 
+import contextvars
 import threading
 import time
 from typing import Any, Callable
@@ -266,7 +267,10 @@ class Pilot:
         self.runs.save(run)
         stop = threading.Event()
         self._events[run_id] = stop
-        thread = threading.Thread(target=self._loop, args=(run, stop, cfg), name=f"playtester-{run_id}", daemon=True)
+        # The calling chat rides along, so Auto keeps using that chat's AI (Ducky AI chat -> Jev through Ducky AI).
+        ctx = contextvars.copy_context()
+        thread = threading.Thread(target=ctx.run, args=(self._loop, run, stop, cfg), name=f"playtester-{run_id}",
+                                  daemon=True)
         self._threads[run_id] = thread
         thread.start()
         self.push({"type": "playtester_run", "run": runs.summary(run)})

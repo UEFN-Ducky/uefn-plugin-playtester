@@ -239,7 +239,7 @@ def register(api: Any) -> None:
             "client": {"open": bool(st.get("ok")), "playing": playing, "loading": loading,
                        "foreground": bool(st.get("foreground")), "loaded_for_s": age,
                        "error": None if st.get("ok") else st.get("error")},
-            "jev": {"key": key, "own_key": bool(jev.api_key()), "brain": brain.get("brain") or None,
+            "jev": {"key": key, "own_key": bool(jev.api_key()), "brain": (active and getattr(client, "last_brain", "")) or brain.get("brain") or None,
                     "choice": brain.get("choice"), "model": cfg["model"], "box": client.box_ok(cfg["model"]),
                     "gateway": ":".join(brain["gateway"]) if brain.get("brain") == "gateway" else None},
             "beacon": bcn_state,

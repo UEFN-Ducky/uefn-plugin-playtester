@@ -234,3 +234,25 @@ def test_manual_actions_keep_a_short_history(tmp_path):
     doc = store.get("manual")
     assert doc["n_steps"] == 45 and len(doc["steps"]) == pilot.MANUAL_KEEP
     assert store.read_frame("manual", the.frame_slot("manual", 45))
+
+
+def test_run_thread_keeps_the_calling_chat(tmp_path):
+    """Auto picks the brain from the chat that started the run, so the run thread must see that chat."""
+    import contextvars
+
+    chat = contextvars.ContextVar("chat", default="")
+    seen = []
+
+    class ChatJev(ScriptJev):
+        def decide(self, *a, **kw):
+            seen.append(chat.get())
+            return super().decide(*a, **kw)
+
+    the, *_ = make(tmp_path, client=ChatJev())
+    token = chat.set("ducky-ai-chat")
+    try:
+        rid = the.start(goal="walk to the button", target="the button")["run_id"]
+    finally:
+        chat.reset(token)
+    wait_done(the, rid)
+    assert seen and set(seen) == {"ducky-ai-chat"}
