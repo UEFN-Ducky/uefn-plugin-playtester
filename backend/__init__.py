@@ -656,7 +656,15 @@ def register(api: Any) -> None:
             return {"ok": False, "error": "No saved frame."}
         return {"ok": True, "run_id": rid, "step": n, "src": screen.data_uri(data, int(_num(width)))}
 
+    def set_brain(brain: str = "auto") -> dict[str, Any]:
+        brain = str(brain or "").strip().lower()
+        if brain not in brains.BRAINS:
+            return {"ok": False, "error": f"brain must be one of {', '.join(brains.BRAINS)}"}
+        _save_setting("brain", brain)
+        return status()
+
     api.register_panel_rpc("status", lambda: status())
+    api.register_panel_rpc("set_brain", set_brain)
     api.register_panel_rpc("run", lambda goal="", target="", success="", interact=False, dry_run=False, max_steps=0,
                            target_actor="", target_xyz="", success_print="":
                            run(goal, target, success, interact, max_steps, 0, dry_run, 0, "tab", target_actor, target_xyz,

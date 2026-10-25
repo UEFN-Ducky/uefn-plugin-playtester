@@ -753,6 +753,7 @@
         : b.seen ? ["beacon", "is-warn", "i-dot", "Beacon quiet", `No position for ${Math.round(b.age_s || 0)} s`]
         : ["beacon", "is-warn", "i-dot", "Beacon off", "No world positions"],
     ];
+    if (j.choice && document.activeElement !== $("brainPick")) $("brainPick").value = j.choice;
     const problem = !c.playing || !j.key;
     $("ready").classList.toggle("pt-hidden", !problem);
     $("ready").innerHTML = problem ? checks.map(([key, cls, ic, name, detail]) => `<div class="pt-check ${cls}"><span class="pt-check__icon">${icon(ic)}</span>
@@ -869,6 +870,16 @@
   });
 
   $("runPick").addEventListener("change", (ev) => { setFollow(false); openRun(ev.target.value); });
+  $("brainPick").addEventListener("change", async (ev) => {
+    try {
+      const st = await rpc("set_brain", { brain: ev.target.value });
+      if (st && st.ok === false && st.error) return showErr(st.error);
+      state.status = st;
+      paintReady(st);
+    } catch (err) {
+      showErr(err.message);
+    }
+  });
   $("follow").addEventListener("click", () => {
     setFollow(!state.follow);
     if (state.follow) loadRuns("").then(openRun);
