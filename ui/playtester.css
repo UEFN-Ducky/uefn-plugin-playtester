@@ -29,6 +29,7 @@
 .pt-title { margin: 0; font: 600 15px/1.2 var(--font-header); }
 .pt-pills { display: flex; gap: 6px; flex-wrap: wrap; }
 .pt-runpick { max-width: 300px; }
+.pt-brainpick { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pt-live[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
 .pt-live__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
 .pt-live[aria-pressed="true"] .pt-live__dot { background: var(--accent); }

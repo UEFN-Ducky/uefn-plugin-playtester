@@ -114,6 +114,38 @@ def pick(choice: str, has_key: bool, ducky_ok: bool, has_gateway: bool, ducky_se
     return "gateway" if has_gateway else ""
 
 
+def from_pick(pick: str) -> dict[str, str] | None:
+    """The settings a model-picker pick stands for, or None when it is empty. Pure.
+    'auto' | 'typesafe:<jev>' | 'uefn_ducky:<jev>' (Jev through Ducky AI) | '<gateway>:<model>'."""
+    pick = str(pick or "").strip()
+    if not pick:
+        return None
+    if pick.lower() == "auto":
+        return {"brain": "auto"}
+    provider, _, model = pick.partition(":")
+    provider, model = provider.strip().lower(), model.strip()
+    if not model:
+        return None
+    if provider == "typesafe":
+        return {"brain": "typesafe", "model": model}
+    if provider == DUCKY_AI_PROVIDER and model.lower().startswith("jev"):
+        return {"brain": "ducky_ai", "model": model}
+    return {"brain": "gateway", "gateway": provider, "gateway_model": model}
+
+
+def to_pick(settings: dict[str, Any]) -> str:
+    """The picker id for the saved settings (the inverse of from_pick). Pure."""
+    brain = str(settings.get("brain") or "auto").strip().lower()
+    model = str(settings.get("model") or jev.DEFAULT_MODEL).strip() or jev.DEFAULT_MODEL
+    if brain == "typesafe":
+        return f"typesafe:{model}"
+    if brain == "ducky_ai":
+        return f"{DUCKY_AI_PROVIDER}:{model}"
+    if brain == "gateway" and settings.get("gateway") and settings.get("gateway_model"):
+        return f"{settings['gateway']}:{settings['gateway_model']}"
+    return "auto"
+
+
 # --------------------------------------------------------------------------- Ducky AI
 
 

@@ -37,6 +37,14 @@
     path: "Path", prompt: "Use prompt", done: "Success", next: "Jev's move", stairs_seen: "Way up/down",
   };
 
+  // Extra rows for Ducky's model picker: Jev judges frames, it can't chat.
+  const JEV_ROWS = [
+    { id: "auto", name: "Auto: the AI of the chat that starts the run", group: "Play Tester" },
+    ...["jev-1.14.0", "jev-preview", "jev-latest", "jev-1.13.0"].map((m) =>
+      ({ id: `typesafe:${m}`, name: `Jev ${m.replace(/^jev-/, "")}`, group: "TypeSafe", note: "Not for chat", vision: true })),
+    { id: "uefn_ducky:jev-1.14.0", name: "Jev 1.14.0 through Ducky AI", group: "Ducky AI", note: "Not for chat", vision: true },
+  ];
+
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const pct = (v) => (v == null ? "—" : `${Math.round(Number(v) * 100)}%`);
@@ -738,6 +746,13 @@
     select(last ? last.n : 0);
   }
 
+  function brainLabel(j) {
+    const pick = String(j.pick || "auto");
+    if (pick === "auto") return "Auto";
+    const row = JEV_ROWS.find((r) => r.id === pick);
+    return row ? (pick.startsWith("typesafe:") ? `${row.name} · TypeSafe` : row.name) : pick.slice(pick.indexOf(":") + 1);
+  }
+
   // One short line per check; the "?" (or the pill) opens the explanation.
   function paintReady(st) {
     const c = st.client || {}, j = st.jev || {}, b = st.beacon || {};
@@ -753,7 +768,7 @@
         : b.seen ? ["beacon", "is-warn", "i-dot", "Beacon quiet", `No position for ${Math.round(b.age_s || 0)} s`]
         : ["beacon", "is-warn", "i-dot", "Beacon off", "No world positions"],
     ];
-    if (j.choice && document.activeElement !== $("brainPick")) $("brainPick").value = j.choice;
+    $("brainPick").textContent = `Who answers: ${brainLabel(j)}`;
     const problem = !c.playing || !j.key;
     $("ready").classList.toggle("pt-hidden", !problem);
     $("ready").innerHTML = problem ? checks.map(([key, cls, ic, name, detail]) => `<div class="pt-check ${cls}"><span class="pt-check__icon">${icon(ic)}</span>
@@ -870,9 +885,13 @@
   });
 
   $("runPick").addEventListener("change", (ev) => { setFollow(false); openRun(ev.target.value); });
-  $("brainPick").addEventListener("change", async (ev) => {
+  // Ducky's own model picker, plus the Jev rows.
+  $("brainPick").addEventListener("click", async () => {
     try {
-      const st = await rpc("set_brain", { brain: ev.target.value });
+      const j = (state.status && state.status.jev) || {};
+      const out = await call("ui.pickModel", { purpose: "video", current: j.pick || "auto", title: "Who answers Play Tester", extra: JEV_ROWS });
+      if (!out || !out.model) return;
+      const st = await rpc("set_brain", { pick: out.model });
       if (st && st.ok === false && st.error) return showErr(st.error);
       state.status = st;
       paintReady(st);

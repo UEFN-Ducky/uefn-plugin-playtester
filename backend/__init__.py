@@ -240,7 +240,7 @@ def register(api: Any) -> None:
                        "foreground": bool(st.get("foreground")), "loaded_for_s": age,
                        "error": None if st.get("ok") else st.get("error")},
             "jev": {"key": key, "own_key": bool(jev.api_key()), "brain": (active and getattr(client, "last_brain", "")) or brain.get("brain") or None,
-                    "choice": brain.get("choice"), "model": cfg["model"], "box": client.box_ok(cfg["model"]),
+                    "choice": brain.get("choice"), "pick": brains.to_pick(_settings()), "model": cfg["model"], "box": client.box_ok(cfg["model"]),
                     "gateway": ":".join(brain["gateway"]) if brain.get("brain") == "gateway" else None},
             "beacon": bcn_state,
             "settings": {k: cfg[k] for k in ("counts", "max_steps", "confidence", "size", "click_focus", "smooth")},
@@ -656,11 +656,13 @@ def register(api: Any) -> None:
             return {"ok": False, "error": "No saved frame."}
         return {"ok": True, "run_id": rid, "step": n, "src": screen.data_uri(data, int(_num(width)))}
 
-    def set_brain(brain: str = "auto") -> dict[str, Any]:
-        brain = str(brain or "").strip().lower()
-        if brain not in brains.BRAINS:
-            return {"ok": False, "error": f"brain must be one of {', '.join(brains.BRAINS)}"}
-        _save_setting("brain", brain)
+    def set_brain(brain: str = "", pick: str = "") -> dict[str, Any]:
+        """The tab's Who answers: a model-picker pick ('typesafe:jev-1.14.0', 'openai:gpt-…', 'auto') or a brain name."""
+        values = brains.from_pick(pick) if pick else {"brain": str(brain or "").strip().lower()}
+        if not values or values["brain"] not in brains.BRAINS:
+            return {"ok": False, "error": f"Pick a model, or a brain: {', '.join(brains.BRAINS)}"}
+        for key, value in values.items():
+            _save_setting(key, value)
         return status()
 
     api.register_panel_rpc("status", lambda: status())

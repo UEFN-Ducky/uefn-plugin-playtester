@@ -101,3 +101,14 @@ def test_ducky_decide_posts_frames_to_the_jev_route():
     assert seen["path"] == brains.DUCKY_AI_PATH and seen["body"]["assets"]["f"]["type"] == "image"
     refused = brains.ducky_decide({"frame": "f"}, Q, {}, "", request=lambda *a, **k: (403, {"error": "no plan"}, ""))
     assert not refused["ok"] and refused["refused"] and "no plan" in refused["error"]
+
+
+def test_a_model_picker_pick_maps_to_the_brain_and_back():
+    assert brains.from_pick("auto") == {"brain": "auto"}
+    assert brains.from_pick("typesafe:jev-preview") == {"brain": "typesafe", "model": "jev-preview"}
+    assert brains.from_pick("uefn_ducky:jev-1.14.0") == {"brain": "ducky_ai", "model": "jev-1.14.0"}
+    assert brains.from_pick("openai:gpt-6-luna") == {"brain": "gateway", "gateway": "openai", "gateway_model": "gpt-6-luna"}
+    assert brains.from_pick("") is None and brains.from_pick("openai:") is None
+    for pick in ("auto", "typesafe:jev-preview", "uefn_ducky:jev-1.14.0", "openai:gpt-6-luna"):
+        assert brains.to_pick(brains.from_pick(pick)) == pick
+    assert brains.to_pick({"brain": "gateway"}) == "auto"  # no gateway model saved yet
