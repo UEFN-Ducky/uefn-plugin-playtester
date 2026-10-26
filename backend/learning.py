@@ -185,7 +185,7 @@ def seed(memory: dict[str, Any] | None, *, beacon_on: bool, has_point: bool) -> 
         out["scan_dir"] = -1 if side == "left" else 1
         out["scan_side"] = side
     if memory.get("last_outcome") == "blocked":
-        out["warn"] = f"The last run on this target was blocked ({memory.get('last_reason') or 'a menu or popup'}): make sure Fortnite shows the game."
+        out["warn"] = f"The last run on this target was blocked ({memory.get('last_reason') or 'a menu or popup'}): make sure the game is showing, not a menu."
     return out
 
 
@@ -206,7 +206,7 @@ def summary(memory: dict[str, Any] | None, lessons: list[dict[str, Any]]) -> dic
                      "popup": f"A popup stopped {n} run(s).",
                      "timeout": f"{n} run(s) hit the step limit: give a target or a level actor.",
                      "jev": f"Jev failed in {n} run(s): check the TypeSafe key.",
-                     "focus": f"Fortnite could not come to the front in {n} run(s).",
+                     "focus": f"The game could not come to the front in {n} run(s).",
                      "eliminated": f"The player was eliminated in {n} run(s)."}.get(b, f"{b}: {n}"))
     return {
         "target": m.get("target") or (lessons[0].get("target") if lessons else ""), "island": m.get("island", ""),

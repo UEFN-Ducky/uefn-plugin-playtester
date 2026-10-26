@@ -12,13 +12,13 @@ class MediaKitRecorder:
     def __init__(self, api: Any) -> None:
         self.api = api
 
-    def start(self, run_id: str) -> str | None:
-        """The capture id, or None when Media Kit can't record now."""
+    def start(self, run_id: str, target: str = "fortnite") -> str | None:
+        """The capture id, or None when Media Kit can't record now (``target``: its capture target)."""
         call = getattr(self.api, "call_tool", None)
         if not callable(call):
             return None
         try:
-            out = call("imk_record_start", {"target": "fortnite", "label": f"Play Tester {run_id}"[:80]})
+            out = call("imk_record_start", {"target": target or "fortnite", "label": f"Play Tester {run_id}"[:80]})
         except Exception:  # Media Kit not installed or the tool refused
             return None
         rec = out.get("record") if isinstance(out, dict) and out.get("ok") else None

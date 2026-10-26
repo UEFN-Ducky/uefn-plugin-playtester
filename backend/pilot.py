@@ -15,41 +15,12 @@ import time
 from typing import Any, Callable
 
 from . import geo, jev, learning, policy, questions, runs, screen
+from .lease import NoLease, Stopped
 
 LIMIT_STEPS = 120
 LIMIT_SECONDS = 300.0
 MANUAL = "manual"
 MANUAL_KEEP = 40
-
-
-class Game:
-    """The real Fortnite client. Tests pass a fake with the same methods."""
-
-    def status(self) -> dict[str, Any]:
-        return screen.client()
-
-    def ready(self, wait: bool = True) -> dict[str, Any]:
-        return screen.ready(wait=wait)
-
-    def focus(self, hwnd: int, allow_click: bool = True) -> dict[str, Any]:
-        return screen.focus(hwnd, allow_click)
-
-    def grab(self, hwnd: int, size: int) -> dict[str, Any]:
-        return screen.grab(hwnd, size)
-
-    def smaller(self, image: Any) -> bytes:
-        return screen.smaller(image)
-
-    def thumb(self, data: bytes) -> str:
-        return screen.data_uri(data, 320)
-
-    def draw_box(self, data: bytes, edges: dict[str, float] | None, label: str = "") -> bytes:
-        return screen.draw_box(data, edges, label)
-
-    def controller(self, hwnd: int, stop: threading.Event, counts: float) -> Any:
-        from . import inputs
-
-        return inputs.Controller(hwnd, counts_per_90=counts, stop=stop)
 
 
 def _num(value: Any, default: float, low: float, high: float) -> float:
@@ -63,6 +34,14 @@ def _num(value: Any, default: float, low: float, high: float) -> float:
 
 
 class Pilot:
+    """Plays one target (targets/): a run loop per run, one run at a time.
+
+    ``game`` is the target. ``beacon``, ``locate``, ``island`` and ``landmarks`` default to the
+    target's own (Fortnite's Verse beacon and level actors; nothing for other games). ``lease``
+    makes testers that need their window in front take turns (lease.InputLease); ``who`` is this
+    tester's id in it.
+    """
+
     def __init__(self, store: runs.Runs, client: jev.JevClient, game: Any = None,
                  push: Callable[[dict[str, Any]], None] | None = None,
                  settings: Callable[[], dict[str, Any]] | None = None,
@@ -71,23 +50,41 @@ class Pilot:
                  save_setting: Callable[[str, Any], None] | None = None,
                  island: Callable[[], str] | None = None,
                  landmarks: Callable[[], list[dict[str, Any]]] | None = None,
-                 recorder: Any = None) -> None:
+                 recorder: Any = None, lease: Any = None, who: str = "default") -> None:
+        if game is None:
+            from .targets import FortniteTarget
+
+            game = FortniteTarget()
         self.runs = store
         self.recorder = recorder  # record.MediaKitRecorder: start(run_id) -> capture id | None, stop(id) -> dict
         self.jev = client
-        self.game = game if game is not None else Game()
+        self.game = game
         self._push = push
         self._settings = settings or (lambda: {})
-        self.beacon = beacon
-        self._locate = locate
+        self.beacon = beacon if beacon is not None else getattr(game, "beacon", None)
+        self._locate = locate or getattr(game, "locate", None)
         self._save_setting = save_setting or (lambda key, value: None)
-        self._island = island or (lambda: "")
-        self._landmarks = landmarks or (lambda: [])
+        self._island = island or getattr(game, "place", None) or (lambda: "")
+        self._landmarks = landmarks or getattr(game, "landmarks", None) or (lambda: [])
+        self.lease = lease if lease is not None else NoLease()
+        self.who = who
         self._events: dict[str, threading.Event] = {}
         self._threads: dict[str, threading.Thread] = {}
         self._manual_lock = threading.Lock()
 
     # ------------------------------------------------------------------ helpers
+
+    @property
+    def label(self) -> str:
+        return str(getattr(self.game, "label", "") or "the game")
+
+    @property
+    def profile(self) -> Any:
+        return getattr(self.game, "profile", None)
+
+    @property
+    def needs_focus(self) -> bool:
+        return bool(getattr(self.game, "needs_focus", True))
 
     def push(self, event: dict[str, Any]) -> None:
         if self._push is None:
@@ -135,8 +132,19 @@ class Pilot:
         if not st.get("foreground"):
             res = self._focus(hwnd, self.cfg()["click_focus"])
             if not res.get("ok"):
-                return {"ok": False, "error": res.get("error") or "Fortnite could not come to the front.", "focus": res}
+                return {"ok": False, "error": res.get("error") or f"{self.label} could not come to the front.", "focus": res}
         return {"ok": True, "hwnd": hwnd}
+
+    def _in_front(self, hwnd: int, cfg: dict[str, Any], run: dict[str, Any]) -> str:
+        """'' when the game is open and (for real keys) in front, else why the run must stop."""
+        status = self.game.status()
+        if not status.get("ok"):
+            return str(status.get("error") or f"{self.label} closed.")
+        if self.needs_focus and not status.get("foreground"):
+            res = self._focus(hwnd, cfg["click_focus"], run)
+            if not res.get("ok"):
+                return str(res.get("error") or f"{self.label} could not come to the front.")
+        return ""
 
     def _focus(self, hwnd: int, allow_click: bool, run: dict[str, Any] | None = None) -> dict[str, Any]:
         try:
@@ -236,7 +244,7 @@ class Pilot:
         if not st.get("ok"):
             return st
         if not st.get("gameplay_loaded"):
-            return {"ok": False, "error": "Fortnite is still loading the island: wait until it is in play mode (playtester_status shows it)."}
+            return {"ok": False, "error": f"{self.label} is still loading: wait until it is in play mode (playtester_status shows it)."}
         cfg = self.cfg()
         run_id = runs.new_id()
         held = self.runs.claim(run_id)
@@ -260,10 +268,13 @@ class Pilot:
             "beacon": beacon_on, "island": island, "click_focus": cfg["click_focus"],
             "memory_used": seeded or None, "events": [], "question_text": {},
             "success_print": success_print, "smooth": cfg["smooth"] and not dry_run,
+            "tester": self.who, "game": self.label,
+            "profile": self.profile.to_dict() if hasattr(self.profile, "to_dict") else None,
         }
         self.runs.clear_stop(run_id)
-        if record and self.recorder is not None:
-            run["record_id"] = self.recorder.start(run_id)  # None: Media Kit isn't there, play anyway
+        rec_target = str(getattr(self.game, "recorder_target", "fortnite") or "")
+        if record and self.recorder is not None and rec_target:
+            run["record_id"] = self.recorder.start(run_id, rec_target)  # None: Media Kit isn't there, play anyway
         self.runs.save(run)
         stop = threading.Event()
         self._events[run_id] = stop
@@ -395,14 +406,20 @@ class Pilot:
                 run.update(self.recorder.stop(run["record_id"]))
             except Exception as exc:  # a failed stop never fails the run
                 run["clip_error"] = str(exc)[:200]
+        # Let go of the run's claim before it reads as done, so a run started on "done" is never refused.
+        self.runs.release(run["id"])
         self.runs.save(run)
         self.learn(run)
         self.push({"type": "playtester_run", "run": runs.summary(run)})
 
     def _loop(self, run: dict[str, Any], stop: threading.Event, cfg: dict[str, Any]) -> None:
         rid = run["id"]
+        prof = self.profile
+        settings: dict[str, Any] = {"confidence": cfg["confidence"]}
+        if prof is not None:
+            settings["hfov"] = float(getattr(prof, "hfov", 80.0))
         goal = {"target": run["target"], "success": run["success"] or run.get("success_print") or "",
-                "interact": run["interact"], "settings": {"confidence": cfg["confidence"]}}
+                "interact": run["interact"], "settings": settings, "view": getattr(prof, "view", "")}
         try:
             level_marks = list(self._landmarks() or [])
         except Exception:
@@ -423,9 +440,14 @@ class Pilot:
         try:
             st = self.game.ready(True)
             if not st.get("ok"):
-                return self._finish(run, "failed", str(st.get("error") or "Fortnite is not ready"))
+                return self._finish(run, "failed", str(st.get("error") or f"{self.label} is not ready"))
             hwnd = int(st["hwnd"])
             ctrl = self.game.controller(hwnd, stop, cfg["counts"])
+
+            def turn() -> Any:
+                # One keyboard and mouse: hold the lease to focus and look, then again to press.
+                return self.lease.turn(self.who, needed=self.needs_focus, stop=stop, before_handover=ctrl.release_all)
+
             while True:
                 if stop.is_set() or self.runs.stop_requested(rid):
                     return self._finish(run, "stopped", "Stopped from Play Tester.")
@@ -436,14 +458,11 @@ class Pilot:
                         return self._finish(run, "done", f"Played the goal for {limit}.")
                     return self._finish(run, "timeout", f"Hit the {limit} limit before the goal was met.")
                 t0 = time.perf_counter()
-                status = self.game.status()
-                if not status.get("ok"):
-                    return self._finish(run, "failed", str(status.get("error") or "The Fortnite client closed."))
-                if not status.get("foreground"):
-                    res = self._focus(hwnd, cfg["click_focus"], run)
-                    if not res.get("ok"):
-                        return self._finish(run, "failed", str(res.get("error") or "Fortnite could not come to the front."))
-                frame = self.game.grab(hwnd, cfg["size"])
+                with turn():
+                    problem = self._in_front(hwnd, cfg, run)
+                    if problem:
+                        return self._finish(run, "failed", problem)
+                    frame = self.game.grab(hwnd, cfg["size"])
 
                 # What the island printed since the last step: a success print ends the run.
                 prints = self._prints(run["started"])
@@ -493,12 +512,14 @@ class Pilot:
                 box_ok = self.jev.box_ok(run["model"])
                 floor = rel["floor"] if rel else ""
                 qs = questions.step_questions(goal=run["goal"], target=run["target"], success=run["success"],
-                                              interact=run["interact"], has_previous=prev is not None, box_ok=box_ok, floor=floor)
+                                              interact=run["interact"], has_previous=prev is not None, box_ok=box_ok, floor=floor,
+                                              profile=prof)
                 res = self._ask(frame, qs, run["model"], prev, goal=run["goal"], facts=facts)
                 if not res.get("ok") and box_ok and int(res.get("status") or 0) == 400 and "box" in str(res.get("error")).lower():
                     self.jev.no_box.add(run["model"])  # this model has no Box: fall back to left/center/right
                     qs = questions.step_questions(goal=run["goal"], target=run["target"], success=run["success"],
-                                                  interact=run["interact"], has_previous=prev is not None, box_ok=False, floor=floor)
+                                                  interact=run["interact"], has_previous=prev is not None, box_ok=False, floor=floor,
+                                                  profile=prof)
                     res = self._ask(frame, qs, run["model"], prev, goal=run["goal"], facts=facts)
                 n += 1
                 run["question_text"].update({k: str(v.get("instructions") or "") for k, v in qs.items()})
@@ -524,7 +545,11 @@ class Pilot:
                 memory = dec["memory"]
                 done: list[dict[str, Any]] = []
                 if not run["dry_run"] and dec["actions"]:
-                    done = ctrl.run(dec["actions"], smooth=bool(run.get("smooth"))) if run.get("smooth") else ctrl.run(dec["actions"])
+                    with turn():
+                        problem = self._in_front(hwnd, cfg, run)
+                        if problem:
+                            return self._finish(run, "failed", problem)
+                        done = ctrl.run(dec["actions"], smooth=bool(run.get("smooth"))) if run.get("smooth") else ctrl.run(dec["actions"])
                 for ev in (ctrl.drain_events() if hasattr(ctrl, "drain_events") else []):
                     run["events"].append({"t": round(time.time() - float(run["started"]), 2), **ev})
                 last_turn = sum(float((d.get("look") or {}).get("dx_deg") or 0) for d in done)
@@ -536,6 +561,8 @@ class Pilot:
                     return self._finish(run, dec["finish"]["status"], dec["finish"]["reason"])
                 if run["dry_run"]:
                     time.sleep(0.4)
+        except Stopped:
+            return self._finish(run, "stopped", "Stopped from Play Tester while it waited for its turn.")
         except Exception as exc:
             return self._finish(run, "failed", f"Play Tester stopped on an error: {type(exc).__name__}: {str(exc)[:200]}")
         finally:
@@ -544,6 +571,7 @@ class Pilot:
                     ctrl.release_all()
                 except Exception:
                     pass
+            self.lease.release(self.who)
             if calibrated >= 2:
                 try:  # the mouse speed the beacon measured is better than the old setting
                     self._save_setting("look_counts", str(int(run["settings"]["counts"])))

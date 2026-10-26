@@ -1,9 +1,9 @@
 {
   "id": "playtester",
   "kind": "plugin",
-  "version": "1.1.13",
+  "version": "1.2.0",
   "label": "Play Tester",
-  "description": "Plays the live Fortnite client with Jev vision and world coordinates: sees each frame, knows where the player and the target are (even behind a building or upstairs), decides moves in about a second, and shows every key, mouse turn and Jev decision live in its tab. Chat agents start in-game play tests with one tool call. Jev answers with your TypeSafe key or through Ducky AI; a gateway vision model works too.",
+  "description": "Plays your games with Jev vision: Fortnite (with world coordinates from a Verse beacon), Godot, Unreal, Roblox, web games and any game window. Sees each frame, decides moves in about a second, and shows every key, mouse turn and Jev decision live, one tab per tester, several testers at once. Chat agents start play tests with one tool call. Jev answers with your TypeSafe key or through Ducky AI; a gateway vision model works too.",
   "min_app_version": "1.2.431",
   "default_enabled": false,
   "data_sharing": false,
@@ -14,6 +14,8 @@
       "intent_pattern": "\\b(play ?test(s|ing|er)?|play-?test\\w*|in[- ]game|ingame|fortnite client|test (it |this |that |my |the )?(island|map|level|game)|walk (the player|to)|move the (player|character)|jev)\\b",
       "plan_tools": [
         "playtester_status",
+        "playtester_testers",
+        "playtester_targets",
         "playtester_get_run",
         "playtester_list_runs",
         "playtester_frame",
@@ -53,7 +55,7 @@
         "tab": "PlayTester",
         "id": "pilot",
         "title": "Jev pilot",
-        "description": "Play Tester asks Jev about every Fortnite frame and moves the player from its answers. Jev runs on your TypeSafe key (Settings → LLMs) or through Ducky AI.",
+        "description": "Play Tester asks Jev about every frame and moves the player from its answers. Jev runs on your TypeSafe key (Settings → LLMs) or through Ducky AI. These are every tester's defaults; a tester tab can pick its own Who answers.",
         "order": 10,
         "properties": [
           {
@@ -125,7 +127,7 @@
             "type": "string",
             "default": "2500",
             "label": "Mouse counts for a 90\u00b0 turn",
-            "description": "How far the mouse moves to turn the camera 90\u00b0 at your Fortnite sensitivity. playtester_calibrate measures it and saves it here."
+            "description": "How far the mouse moves to turn the camera 90° at your Fortnite sensitivity. playtester_calibrate measures it and saves it here (other testers keep their own)."
           },
           {
             "id": "max_steps",
@@ -202,15 +204,15 @@
             "id": "click_focus",
             "type": "boolean",
             "default": true,
-            "label": "Click to bring Fortnite to the front",
-            "description": "When Windows won't switch to Fortnite, click once: on its title bar when windowed, a right click (aim) in the middle when fullscreen. Your cursor goes back where it was. Never while Fortnite is loading."
+            "label": "Click to bring the game to the front",
+            "description": "When Windows won't switch to the game, click once: on its title bar when windowed, a right click (aim) in the middle when fullscreen. Your cursor goes back where it was. Never while the game is loading."
           },
           {
             "id": "smooth_walk",
             "type": "boolean",
             "default": true,
             "label": "Keep walking while Jev thinks",
-            "description": "Walk keys stay held between steps and turns happen while walking, so the player doesn't stop and start. Keys come up the moment Fortnite loses focus, Stop is pressed or no decision arrives for 2.5 s."
+            "description": "Walk keys stay held between steps and turns happen while walking, so the player doesn't stop and start. Keys come up the moment the game loses focus, Stop is pressed, another tester's turn comes or no decision arrives for 2.5 s."
           }
         ]
       }
@@ -218,11 +220,76 @@
     "automations": {
       "nodes": [
         {
+          "id": "playtester.open",
+          "label": "Open a tester",
+          "group": "Play Tester",
+          "description": "Open a tester for a game (fortnite, godot, unreal, roblox, web:<url>, window:<exe>) and pass its id on. Run again, a tester with the same tab name is reused.",
+          "config_fields": [
+            {
+              "id": "target",
+              "label": "Game (godot, roblox, web:localhost:8060, window:MyGame.exe)",
+              "type": "string"
+            },
+            {
+              "id": "label",
+              "label": "Tab name",
+              "type": "string"
+            },
+            {
+              "id": "profile",
+              "label": "How it is played (fps, tps, roblox, side2d, topdown, pointclick)",
+              "type": "string"
+            },
+            {
+              "id": "keys",
+              "label": "Key map (SPACE=ARROWUP, E=F)",
+              "type": "string"
+            },
+            {
+              "id": "player",
+              "label": "Godot player node path",
+              "type": "string"
+            }
+          ],
+          "inputs": [
+            {
+              "id": "target",
+              "label": "Game",
+              "type": "string"
+            }
+          ],
+          "outputs": [
+            {
+              "id": "tester",
+              "label": "Tester",
+              "type": "string"
+            },
+            {
+              "id": "summary",
+              "label": "What to do",
+              "type": "string"
+            }
+          ]
+        },
+        {
           "id": "playtester.status",
           "label": "Play Tester status",
           "group": "Play Tester",
-          "description": "Is Fortnite open and in play mode, is the Jev key saved, is a run playing.",
-          "config_fields": [],
+          "description": "Is the game open and in play mode, does a brain answer, is a run playing.",
+          "config_fields": [
+            {
+              "id": "tester",
+              "label": "Tester (empty = Fortnite)",
+              "type": "string"
+            }
+          ],
+          "inputs": [
+            {
+              "id": "tester",
+              "label": "Tester",
+              "type": "string"
+            }
+          ],
           "outputs": [
             {
               "id": "ready",
@@ -240,8 +307,13 @@
           "id": "playtester.run",
           "label": "Play test a goal",
           "group": "Play Tester",
-          "description": "Jev drives the Fortnite player toward the goal and reports success, steps and time.",
+          "description": "Jev drives the player toward the goal and reports success, steps and time.",
           "config_fields": [
+            {
+              "id": "tester",
+              "label": "Tester (empty = Fortnite)",
+              "type": "string"
+            },
             {
               "id": "goal",
               "label": "Goal",
@@ -293,6 +365,11 @@
               "id": "goal",
               "label": "Goal",
               "type": "string"
+            },
+            {
+              "id": "tester",
+              "label": "Tester",
+              "type": "string"
             }
           ],
           "outputs": [
@@ -327,8 +404,13 @@
           "id": "playtester.check",
           "label": "Jev looks at the game",
           "group": "Play Tester",
-          "description": "Ask Jev your own questions about the current Fortnite frame (call it `frame`).",
+          "description": "Ask Jev your own questions about the game's current frame (call it `frame`).",
           "config_fields": [
+            {
+              "id": "tester",
+              "label": "Tester (empty = Fortnite)",
+              "type": "string"
+            },
             {
               "id": "questions",
               "label": "Questions JSON",
@@ -340,6 +422,11 @@
               "id": "questions",
               "label": "Questions",
               "type": "json"
+            },
+            {
+              "id": "tester",
+              "label": "Tester",
+              "type": "string"
             }
           ],
           "outputs": [
@@ -359,8 +446,13 @@
           "id": "playtester.press",
           "label": "Press keys in game",
           "group": "Play Tester",
-          "description": "Hold keys in the Fortnite client (W, A, S, D, SPACE, E\u2026).",
+          "description": "Hold keys in the game (W, A, S, D, SPACE, E...); the tester's key map applies.",
           "config_fields": [
+            {
+              "id": "tester",
+              "label": "Tester (empty = Fortnite)",
+              "type": "string"
+            },
             {
               "id": "keys",
               "label": "Keys (W+A, SPACE, E)",
@@ -384,8 +476,13 @@
           "id": "playtester.look",
           "label": "Turn the camera",
           "group": "Play Tester",
-          "description": "Turn the Fortnite camera by degrees (right and down are positive).",
+          "description": "Turn the game's camera by degrees (right and down are positive).",
           "config_fields": [
+            {
+              "id": "tester",
+              "label": "Tester (empty = Fortnite)",
+              "type": "string"
+            },
             {
               "id": "dx_degrees",
               "label": "Turn right (degrees)",
@@ -409,8 +506,13 @@
           "id": "playtester.stop",
           "label": "Stop the play test",
           "group": "Play Tester",
-          "description": "Stop the running play test; every key is released.",
+          "description": "Stop a tester's running play test; every key is released.",
           "config_fields": [
+            {
+              "id": "tester",
+              "label": "Tester (empty = Fortnite)",
+              "type": "string"
+            },
             {
               "id": "run_id",
               "label": "Run id (empty = the running one)",
@@ -429,8 +531,13 @@
           "id": "playtester.where",
           "label": "Where is the player",
           "group": "Play Tester",
-          "description": "The player's world position from the beacon, and how far and which way a target is.",
+          "description": "The player's world position (Fortnite beacon, Godot nodes), and how far and which way a target is.",
           "config_fields": [
+            {
+              "id": "tester",
+              "label": "Tester (empty = Fortnite)",
+              "type": "string"
+            },
             {
               "id": "target_actor",
               "label": "Target actor label",
@@ -459,8 +566,13 @@
           "id": "playtester.lessons",
           "label": "What past play tests taught",
           "group": "Play Tester",
-          "description": "Success rate, what blocked runs and tips for a target, from past runs on this island.",
+          "description": "Success rate, what blocked runs and tips for a target, from past runs in this game.",
           "config_fields": [
+            {
+              "id": "tester",
+              "label": "Tester (empty = Fortnite)",
+              "type": "string"
+            },
             {
               "id": "target",
               "label": "Target (empty = all)",

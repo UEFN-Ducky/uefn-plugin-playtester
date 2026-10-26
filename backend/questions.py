@@ -3,6 +3,9 @@
 TypeSafe's advice is to batch every question about the same state and to keep each one
 as simple as possible (models do worse on images than on text). The frame is
 ``frame`` in the state and the frame before the last move is ``previous``.
+
+The game's profile (profiles.py) names the game and drops what it can't do: no walking
+path in a point-and-click game, no camera turns where the player only faces left or right.
 """
 
 from __future__ import annotations
@@ -41,6 +44,16 @@ NEXT = {
     "jump": "Jump (over a small step or gap).",
     "interact": "Use or interact with what is right in front of the player.",
 }
+# Without a camera a turn only changes which way the player walks next.
+NEXT_FACING = {**NEXT, "forward": "Keep walking the way the player faces.",
+               "turn_left": "Face left (the next walk goes left).", "turn_right": "Face right (the next walk goes right)."}
+
+
+def _screen_rows(game: str) -> dict[str, str]:
+    if game == "Fortnite":
+        return SCREEN
+    return {**SCREEN, "playing": "The game in play: the player's character or view can be controlled; no menu, map, "
+                                 "inventory, loading screen or dialog covers the view."}
 
 
 def step_questions(
@@ -52,15 +65,22 @@ def step_questions(
     has_previous: bool = False,
     box_ok: bool = True,
     floor: str = "",
+    profile: Any = None,
 ) -> dict[str, Any]:
+    game = getattr(profile, "name", "") or "Fortnite"
+    view = getattr(profile, "view", "") or "tps3d"
     q: dict[str, Any] = {
-        "screen": {"type": "choice", "instructions": "What does `frame` show? It is a screenshot of Fortnite.", "criteria": SCREEN},
-        "path": {
+        "screen": {"type": "choice", "instructions": f"What does `frame` show? It is a screenshot of {game}.",
+                   "criteria": _screen_rows(game)},
+    }
+    if view in ("fps3d", "tps3d"):
+        q["path"] = {
             "type": "choice",
             "instructions": "Seen from the player's view in `frame`, which way can the player walk a few steps without walking into a wall, fence, prop or a drop?",
             "criteria": PATH,
-        },
-    }
+        }
+    if view == "pointclick":
+        return _click_questions(q, goal=goal, target=target, success=success, box_ok=box_ok)
     if success:
         q["done"] = {"type": "noul", "instructions": f"Look at `frame`. {success.strip()}"}
     if target:
@@ -75,7 +95,7 @@ def step_questions(
         q["next"] = {
             "type": "choice",
             "instructions": f"The player's goal is: {goal.strip()}. Looking at `frame`, which single move helps most right now?",
-            "criteria": NEXT,
+            "criteria": NEXT if view in ("fps3d", "tps3d") else NEXT_FACING,
         }
     if has_previous:
         q["moved"] = {
@@ -95,6 +115,18 @@ def step_questions(
             "type": "noul",
             "instructions": "Does `frame` show an interaction prompt: a key or button hint to use, open, pick up, press or talk, such as E with a label?",
         }
+    return q
+
+
+def _click_questions(q: dict[str, Any], *, goal: str, target: str, success: str, box_ok: bool) -> dict[str, Any]:
+    """Point-and-click: find what to click (the target, or whatever moves the goal on)."""
+    if success:
+        q["done"] = {"type": "noul", "instructions": f"Look at `frame`. {success.strip()}"}
+    what = target.strip() or f"the button, item or place to click next to reach this goal: {goal.strip()}"
+    q["seen"] = {"type": "noul", "instructions": f"Is {what} visible in `frame`?"}
+    q["where"] = {"type": "choice", "instructions": f"Where is {what} in `frame`?", "criteria": WHERE}
+    if box_ok:
+        q["target"] = {"type": "box", "instructions": f"{what} in `frame`"}
     return q
 
 

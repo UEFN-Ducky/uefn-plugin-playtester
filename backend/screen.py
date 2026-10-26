@@ -1,4 +1,5 @@
-"""The Fortnite client window: find it, wait for play mode, focus it, grab frames.
+"""Game windows on screen: the Fortnite client's find and play-mode gate, and for every game
+window its focus, drawing area and frames.
 
 The window find and the play-mode gate are Ducky's own Fortnite client tools
 (``backend.tools.uefn.fortnite_client``), so Play Tester follows the same safety rule:
@@ -96,12 +97,12 @@ def client_box(hwnd: int) -> tuple[int, int, int, int]:
     u = _user32()
     rect = wintypes.RECT()
     if not u.GetClientRect(hwnd, ctypes.byref(rect)):
-        raise RuntimeError("Could not read the Fortnite window size")
+        raise RuntimeError("Could not read the game window size")
     origin = wintypes.POINT(0, 0)
     u.ClientToScreen(hwnd, ctypes.byref(origin))
     box = (origin.x, origin.y, origin.x + rect.right, origin.y + rect.bottom)
     if box[2] - box[0] < MIN_SIDE or box[3] - box[1] < MIN_SIDE:
-        raise RuntimeError("The Fortnite window is too small to see: make it larger than 280 x 280.")
+        raise RuntimeError("The game window is too small to see: make it larger than 280 x 280.")
     return box
 
 

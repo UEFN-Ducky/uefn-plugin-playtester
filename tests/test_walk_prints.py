@@ -107,7 +107,7 @@ def test_watchdog_lets_go_when_focus_is_lost():
     c.keep(["W"])
     rec.hwnd = 99  # another window came to the front
     assert wait_until(lambda: c.kept == [])
-    assert c.drain_events()[0]["why"] == "Fortnite lost focus"
+    assert c.drain_events()[0]["why"] == inputs.LOST
 
 
 def test_watchdog_lets_go_on_stop():

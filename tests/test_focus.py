@@ -101,7 +101,7 @@ def test_right_click_in_the_middle_when_borderless():
 def test_all_refused_says_what_to_do():
     w = FakeWin(None)
     out = run(w)
-    assert not out["ok"] and out["method"] == "refused" and "click the Fortnite window" in out["error"]
+    assert not out["ok"] and out["method"] == "refused" and "click the game window" in out["error"]
     assert out["tried"][-1] == "click-right" and w.cursor_at == (10, 20)
 
 

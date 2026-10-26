@@ -1,4 +1,4 @@
-"""Bring the Fortnite client to the front, reliably.
+"""Bring the game window (Fortnite or any other) to the front, reliably.
 
 Windows lets a program take the foreground only in some cases, so a background
 process (the agents' bridge) is often refused. The order here:
@@ -11,7 +11,7 @@ process (the agents' bridge) is often refused. The order here:
 5. one click when the setting allows it: left on the title bar of a windowed client,
    right (aim, nothing lasting) in the middle of a borderless one; the cursor goes back.
 
-The caller has already checked that Fortnite is in play mode; nothing here runs while
+The caller has already checked that the game is in play mode; nothing here runs while
 it loads. Every attempt reports the method that worked so runs can log it.
 """
 
@@ -164,7 +164,7 @@ def bring_to_front(hwnd: int, *, allow_click: bool = True, win: Any = None,
         sleep(SETTLE_S + 0.1)
         if front():
             return done(name, at=list(point), button=button)
-    msg = ("Fortnite could not come to the front: click the Fortnite window once, then try again."
-           if allow_click else "Fortnite could not come to the front and clicking to focus is off in Settings → Play Tester: "
-           "click the Fortnite window once, then try again.")
+    msg = ("The game could not come to the front: click the game window once, then try again."
+           if allow_click else "The game could not come to the front and clicking to focus is off in Settings → Play Tester: "
+           "click the game window once, then try again.")
     return {"ok": False, "method": "refused", "ms": int((clock() - started) * 1000), "tried": tried, "error": msg}

@@ -82,7 +82,7 @@ def test_hold_releases_even_when_something_breaks():
 def test_hold_stops_when_focus_is_lost():
     rec = Rec(lose_after=3)
     out = ctrl(rec).hold("W", 2.0)
-    assert out["cut_short"] == "Fortnite lost focus"
+    assert out["cut_short"] == inputs.LOST
     assert rec.events[-1] == ("key", 0x11, True)
 
 

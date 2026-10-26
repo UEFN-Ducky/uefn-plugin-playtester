@@ -1,17 +1,19 @@
-"""Play Tester: Jev plays the live Fortnite client and shows every move in its tab.
+"""Play Tester: Jev plays games (Fortnite, Godot, Unreal, Roblox, web pages, any window) and shows every
+move in its tab, one tab per tester.
 
-Tools, workflow nodes and the tab's panel calls all run the same functions below.
-Nothing here touches the game until it is given something to do (a goal, keys, a
-target): empty calls answer with what to give.
+A tester is one game (testers.py, tester.py). Tools, workflow nodes and the tab's panel calls all pick a
+tester (``tester=``; empty = the one this chat used last, else the Fortnite one) and run its methods.
+Nothing here touches a game until it is given something to do (a goal, keys, a target): empty calls
+answer with what to give.
 """
 
 from __future__ import annotations
 
-import json
 import time
-from typing import Any
+from typing import Any, Callable
 
-from . import beacon, brains, geo, jev, pilot, policy, questions, record, runs, screen
+from . import capture, lease, record, targets, testers, windows
+from .tester import BEACON_HOW, DEFAULT, Tester, to_bool, to_num
 
 PLUGIN_ID = "playtester"
 INTENT = (
@@ -19,7 +21,7 @@ INTENT = (
     r"(island|map|level|game)|walk (the player|to)|move the (player|character)|jev)\b"
 )
 
-_PILOT: pilot.Pilot | None = None
+_MANAGER: testers.TesterManager | None = None
 
 
 def _settings() -> dict[str, Any]:
@@ -61,374 +63,74 @@ def _push(event: dict[str, Any]) -> None:
     push_agent_event(event)
 
 
-def _bool(value: Any) -> bool:
-    if isinstance(value, str):
-        return value.strip().lower() in ("1", "true", "yes", "on")
-    return bool(value)
-
-
-def _num(value: Any, default: float = 0.0) -> float:
+def _chat() -> str:
     try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
+        from backend.agent.hammer_guard import current_conversation
 
-
-def _questions_arg(raw: Any) -> dict[str, Any] | None:
-    if isinstance(raw, str):
-        raw = raw.strip()
-        if not raw:
-            return None
-        try:
-            raw = json.loads(raw)
-        except ValueError:
-            return None
-    return raw if isinstance(raw, dict) and raw else None
-
-
-def _compact(answers: dict[str, Any]) -> dict[str, Any]:
-    """Jev's answers without the noise: value, probabilities and confidence per question."""
-    out: dict[str, Any] = {}
-    for key, ans in (answers or {}).items():
-        if not isinstance(ans, dict):
-            continue
-        kind = str(ans.get("type") or "")
-        row: dict[str, Any] = {"type": kind}
-        if kind == "noul":
-            row["noul"] = jev.noul(answers, key)
-        elif kind == "choice":
-            hit = jev.choice(answers, key)
-            row["choice"] = hit[0] if hit else None
-            row["probabilities"] = jev.probabilities(answers, key)
-        elif kind == "score":
-            row["score"] = jev.score(answers, key)
-        elif kind == "box":
-            row["box"] = jev.box(answers, key)
-        if ans.get("confidence") is not None:
-            row["confidence"] = ans.get("confidence")
-        out[key] = row
-    return out
-
-
-BEACON_HOW = (
-    "1) playtester_beacon(add=true) adds Content/Verse/PlayTester/playtester_beacon_device.verse to the project. "
-    "2) Build Verse and push the changes. 3) Place playtester_beacon_device anywhere in the level. "
-    "4) Launch Session: its [PTPOS] lines reach the UEFN Output Log and playtester_status shows the beacon on."
-)
+        return str(current_conversation() or "")
+    except Exception:
+        return ""
 
 
 def register(api: Any) -> None:
-    global _PILOT
-    store = runs.Runs(api.data, api.local_dir("frames"))
-    client = brains.Brain(jev.JevClient(), _settings)
-    bcn = beacon.Beacon()
+    global _MANAGER
+    mgr = testers.TesterManager(api, settings=_settings, save_setting=_save_setting, push=_push, island=_island,
+                                recorder=record.MediaKitRecorder(api), lease=lease.InputLease(api.local_dir("lease")))
+    _MANAGER = mgr
 
-    def map_key() -> str:
-        from . import learning
-
-        return f"map.{learning.key(_island(), 40) or 'island'}"
-
-    def level_map(refresh: bool = False) -> dict[str, Any]:
-        """Every device's label and position in the open island, read once from the UEFN editor and kept."""
-        doc = store.data.get(map_key())
-        if isinstance(doc, dict) and doc.get("actors") and not refresh:
-            return {"ok": True, **doc, "cached": True}
+    def on(tester: Any, work: Callable[[Tester], dict[str, Any]]) -> dict[str, Any]:
+        """Run ``work`` on the chosen tester; an unknown tester answers with the open ones."""
         try:
-            out = api.listener("actor_state_snapshot", {"limit": 600}, timeout=30)
-        except Exception:
-            if isinstance(doc, dict) and doc.get("actors"):
-                return {"ok": True, **doc, "cached": True, "note": "UEFN isn't connected: this is the last map read."}
-            return {"ok": False, "error": "UEFN isn't connected, so Play Tester can't read the level: open the island in UEFN."}
-        if isinstance(out, dict) and "actors" not in out and isinstance(out.get("result"), dict):
-            out = out["result"]
-        actors = []
-        for r in (out or {}).get("actors") or []:
-            pt = geo.point((r or {}).get("location"))
-            if pt and r.get("label"):
-                actors.append({"label": str(r["label"]), "class": str(r.get("class") or ""), **{k: round(v, 1) for k, v in pt.items()}})
-        doc = {"island": _island(), "at": time.time(), "count": len(actors), "actors": actors}
+            t = mgr.pick(str(tester or ""), _chat())
+        except LookupError as exc:
+            return {"ok": False, "error": str(exc)}
         try:
-            store.data.put(map_key(), doc)
-        except Exception:
-            pass
-        return {"ok": True, **doc, "cached": False}
+            return work(t)
+        except (ValueError, RuntimeError) as exc:
+            return {"ok": False, "error": str(exc), "tester": t.id}
 
-    def landmarks() -> list[dict[str, Any]]:
-        doc = store.data.get(map_key())
-        rows = (doc or {}).get("actors") if isinstance(doc, dict) else None
-        return [{"name": r["label"], "x": r["x"], "y": r["y"], "z": r["z"], "source": "level"} for r in rows or []]
+    def summaries() -> list[dict[str, Any]]:
+        return [t.summary() for t in mgr.list()]
 
-    def from_map(label: str) -> dict[str, Any] | None:
-        for r in landmarks():
-            if r["name"].lower() == label.lower():
-                return {"ok": True, "point": {k: float(r[k]) for k in ("x", "y", "z")}, "label": r["name"], "from": "saved map"}
-        return None
-
-    def locate(label: str) -> dict[str, Any]:
-        """A level actor's position by its label, from the UEFN editor (or the saved map when it is busy)."""
-        try:
-            out = api.listener("actor_state_snapshot", {"label_filter": label, "limit": 20, "scope": "all"}, timeout=20)
-        except Exception:
-            saved = from_map(label)
-            if saved:
-                return saved
-            return {"ok": False, "error": "UEFN isn't connected, so Play Tester can't look the actor up: open the project in UEFN or give target_xyz."}
-        if isinstance(out, dict) and "actors" not in out and isinstance(out.get("result"), dict):
-            out = out["result"]
-        rows = [r for r in ((out or {}).get("actors") or []) if isinstance(r, dict)]
-        exact = [r for r in rows if str(r.get("label") or "").lower() == label.lower()]
-        row = exact[0] if exact else (rows[0] if len(rows) == 1 else None)
-        if row is None:
-            near = ", ".join(str(r.get("label")) for r in rows[:8])
-            return {"ok": False, "error": f"No actor labelled {label!r} in the level" + (f"; close: {near}" if near else ".")}
-        pt = geo.point(row.get("location"))
-        if not pt:
-            return {"ok": False, "error": f"{row.get('label')} has no readable location."}
-        return {"ok": True, "point": pt, "label": str(row.get("label"))}
-
-    the = pilot.Pilot(store, client, push=_push, settings=_settings, beacon=bcn, locate=locate,
-                      save_setting=_save_setting, island=_island, landmarks=landmarks,
-                      recorder=record.MediaKitRecorder(api))
-    _PILOT = the
-
-    def beacon_state() -> dict[str, Any]:
-        raw = bcn.pose()
-        fresh = raw is not None and raw["age_s"] <= beacon.FRESH_S
-        out: dict[str, Any] = {"seen": raw is not None, "on": fresh}
-        if raw:
-            out["age_s"] = raw["age_s"]
-            out["pose"] = {k: round(float(raw[k]), 1) for k in ("x", "y", "z", "yaw")}
-            if raw.get("state"):
-                out["state"] = raw["state"]
-        try:
-            out["landmarks"] = len(bcn.marks())
-        except Exception:
-            pass
+    def status(tester: Any = "") -> dict[str, Any]:
+        out = on(tester, lambda t: t.status())
+        out["testers"] = summaries()
         return out
 
-    # ---------------------------------------------------------------- status
+    def target_list(thumbnails: Any = False) -> dict[str, Any]:
+        rows = windows.games(windows.list_windows())
+        if to_bool(thumbnails):
+            for row in rows[:16]:
+                row["thumb"] = capture.thumbnail(int(row["hwnd"]))
+        return {"ok": True, "presets": targets.presets(), "windows": rows, "testers": summaries(),
+                "how": "playtester_open(target=...) with a preset (fortnite, godot, unreal, roblox, web:<url>) "
+                       "or window:<exe or title> from windows."}
 
-    def status() -> dict[str, Any]:
-        st = screen.client()
-        cfg = the.cfg()
-        brain = client.ready()
-        key = bool(brain.get("ok"))
-        age = st.get("loaded_for_s")
-        playing = bool(st.get("ok") and st.get("gameplay_loaded") and (age or 0) >= screen.SETTLE_S)
-        loading = bool(st.get("ok") and not playing)
-        active = store.active()
-        latest = store.latest()
-        bcn_state = beacon_state()
-        if not key:
-            nxt = str(brain.get("error") or jev.NO_KEY)
-        elif not st.get("ok"):
-            nxt = str(st.get("error") or "No Fortnite client")
-        elif loading:
-            nxt = "Fortnite is loading the island: wait, then call playtester_status again."
-        elif active:
-            nxt = f"Run {active.get('run_id')} is playing: playtester_wait or playtester_stop."
-        elif not bcn_state["on"]:
-            nxt = ("Ready, but the beacon is off, so runs see only the image: set it up first "
-                   "(playtester_beacon(add=true), build Verse, push, place playtester_beacon_device, launch again), "
-                   "then call playtester_run(goal, target, success).")
-        else:
-            nxt = "Ready: call playtester_run(goal, target, success) to play test."
-        return {
-            "ok": True,
-            "ready": bool(key and playing and not active),
-            "client": {"open": bool(st.get("ok")), "playing": playing, "loading": loading,
-                       "foreground": bool(st.get("foreground")), "loaded_for_s": age,
-                       "error": None if st.get("ok") else st.get("error")},
-            "jev": {"key": key, "own_key": bool(jev.api_key()), "brain": (active and getattr(client, "last_brain", "")) or brain.get("brain") or None,
-                    "choice": brain.get("choice"), "pick": brains.to_pick(_settings()), "model": cfg["model"], "box": client.box_ok(cfg["model"]),
-                    "gateway": ":".join(brain["gateway"]) if brain.get("brain") == "gateway" else None},
-            "beacon": bcn_state,
-            "settings": {k: cfg[k] for k in ("counts", "max_steps", "confidence", "size", "click_focus", "smooth")},
-            "map": {"landmarks": len(landmarks())},
-            "island": the.island(),
-            "active_run": active.get("run_id") if active else None,
-            "latest_run": latest,
-            "next": nxt,
-        }
-
-    # ---------------------------------------------------------------- looking
-
-    def check(qs: Any = None, label: str = "check") -> dict[str, Any]:
-        parsed = _questions_arg(qs)
-        if parsed is None:
-            return {"ok": False, "error": "Give questions: {id: {type: noul|choice|score|box, instructions, criteria?}} and call the frame `frame`."}
-        problem = jev.check_questions(parsed)
-        if problem:
-            return {"ok": False, "error": problem}
-        t0 = time.perf_counter()
-        ready = the._ready_client()
-        if not ready.get("ok"):
-            return ready
-        frame = the.game.grab(ready["hwnd"], the.cfg()["size"])
-        res = the._ask(frame, parsed, the.cfg()["model"])
-        if not res.get("ok"):
-            return res
-        answers = _compact(res.get("answers") or {})
-        boxes = {k: v["box"] for k, v in answers.items() if v.get("box")}
-        first = next(iter(boxes.items()), None)
-        shown = the.game.draw_box(frame["jpeg"], first[1] if first else None, first[0] if first else "")
-        view = questions.read_view(res.get("answers") or {})
-        why = f"{label}: " + ", ".join(f"{k} {_say(v)}" for k, v in answers.items())
-        logged = the.manual(label, frame, view, [], [], why, t0, int(res.get("ms") or 0), jpeg=shown)
-        return {"ok": True, "answers": answers, "boxes": boxes, "jev_ms": res.get("ms"),
-                "ms": int((time.perf_counter() - t0) * 1000), "frame": logged["path"],
-                "size": [frame["width"], frame["height"]]}
-
-    def find(target: str = "") -> dict[str, Any]:
-        t = (target or "").strip()
-        if not t:
-            return {"ok": False, "error": "Give a target to find, for example: the red button."}
-        box_ok = client.box_ok(the.cfg()["model"])
-        qs: dict[str, Any] = {
-            "seen": {"type": "noul", "instructions": f"Is {t} visible in `frame`?"},
-            "where": {"type": "choice", "instructions": f"Where is {t} in `frame`?", "criteria": questions.WHERE},
-        }
-        if box_ok:
-            qs["target"] = {"type": "box", "instructions": f"{t} in `frame`"}
-        out = check(qs, label=f"find {t}")
-        if not out.get("ok"):
-            return out
-        ans = out["answers"]
-        seen = (ans.get("seen") or {}).get("noul")
-        box = (ans.get("target") or {}).get("box")
-        found = seen is not None and seen >= the.cfg()["confidence"]
-        result = {"ok": True, "target": t, "found": found, "seen": seen,
-                  "where": (ans.get("where") or {}).get("choice"),
-                  "box": box if found else None, "frame": out["frame"], "jev_ms": out["jev_ms"], "ms": out["ms"]}
-        if box and not found:
-            result["note"] = "Jev always returns a box; it is ignored because the target is not visible."
-        return result
-
-    # ---------------------------------------------------------------- pressing
-
-    def act(kind: str, actions: list[dict[str, Any]], why: str) -> dict[str, Any]:
-        active = store.active()
-        if active:
-            return {"ok": False, "error": f"Run {active.get('run_id')} is playing: stop it before pressing keys by hand."}
-        t0 = time.perf_counter()
-        ready = the._ready_client()
-        if not ready.get("ok"):
-            return ready
-        import threading
-
-        ctrl = the.game.controller(ready["hwnd"], threading.Event(), the.cfg()["counts"])
+    def open_tester(target: str = "", label: str = "", profile: str = "", view: str = "", game_name: str = "",
+                    keys: str = "", player: str = "", settle_s: Any = None) -> dict[str, Any]:
+        if not str(target or "").strip():
+            return {"ok": False, "error": "Say what to test: fortnite, godot, unreal, roblox, web:<url> or window:<exe or title> "
+                                          "(playtester_targets lists the open windows)."}
         try:
-            done = ctrl.run(actions)
-        except (ValueError, RuntimeError) as exc:
+            t = mgr.open(target, label=label, profile=profile, view=view, name=game_name, keys=keys or None,
+                         player=player, settle_s=settle_s)
+        except (ValueError, LookupError) as exc:
             return {"ok": False, "error": str(exc)}
-        finally:
-            ctrl.release_all()
-        time.sleep(0.15)
-        frame = the.game.grab(ready["hwnd"], the.cfg()["size"])
-        logged = the.manual(kind, frame, {}, actions, done, why, t0)
-        return {"ok": True, "done": done, "frame": logged["path"], "ms": int((time.perf_counter() - t0) * 1000)}
+        chat = _chat()
+        if chat:
+            mgr._chat_pick[chat] = t.id
+        st = t.status()
+        return {"ok": True, "tester": t.summary(), "ready": st.get("ready"), "next": st.get("next"),
+                "use": f"Pass tester={t.id!r} to playtester_run, playtester_check, playtester_press and the rest."}
 
-    def press(keys: Any = "", seconds: float = 0.5) -> dict[str, Any]:
-        from . import inputs
-
-        try:
-            names = inputs.key_names(keys)
-        except ValueError as exc:
-            return {"ok": False, "error": str(exc)}
-        if not names:
-            return {"ok": False, "error": "Give keys to press, for example W, W+A, SPACE or E."}
-        secs = min(inputs.MAX_HOLD_S, max(inputs.MIN_HOLD_S, _num(seconds, 0.5)))
-        return act("press", [{"keys": names, "seconds": secs}], f"press {'+'.join(names)} {secs:g} s")
-
-    def look(dx_degrees: float = 0.0, dy_degrees: float = 0.0) -> dict[str, Any]:
-        dx, dy = _num(dx_degrees), _num(dy_degrees)
-        if not dx and not dy:
-            return {"ok": False, "error": "Give dx_degrees (right is positive) or dy_degrees (down is positive)."}
-        dx, dy = max(-360.0, min(360.0, dx)), max(-90.0, min(90.0, dy))
-        return act("look", [{"look": dx, "look_y": dy}], f"turn {'right' if dx >= 0 else 'left'} {abs(dx):g}°" + (f", {'down' if dy > 0 else 'up'} {abs(dy):g}°" if dy else ""))
-
-    def click(button: str = "", seconds: float = 0.05) -> dict[str, Any]:
-        name = (button or "").strip().lower()
-        if name not in ("left", "right"):
-            return {"ok": False, "error": "Give button: left (fire / use) or right (aim)."}
-        secs = min(3.0, max(0.02, _num(seconds, 0.05)))
-        return act("click", [{"click": name, "seconds": secs}], f"{name} click {secs:g} s")
-
-    def calibrate(turn_degrees: float = 0.0) -> dict[str, Any]:
-        """Turn a known amount and find the same spot again with Jev, to learn the mouse speed."""
-        turn = _num(turn_degrees)
-        if not 5 <= abs(turn) <= 40:
-            return {"ok": False, "error": "Give turn_degrees between 5 and 40 (20 works well); the spot must stay in view."}
-        if store.active():
-            return {"ok": False, "error": "A run is playing: stop it first."}
-        if not client.box_ok(the.cfg()["model"]):
-            return {"ok": False, "error": "Calibration needs Box questions: pick jev-1.14.0 or jev-preview in Settings → Play Tester."}
-        t0 = time.perf_counter()
-        ready = the._ready_client()
-        if not ready.get("ok"):
-            return ready
-        cfg = the.cfg()
-        hwnd = ready["hwnd"]
-        before = the.game.grab(hwnd, cfg["size"])
-        img = before["image"]
-        w, h = img.size
-        crop = img.crop((int(w * 0.4), int(h * 0.35), int(w * 0.6), int(h * 0.65)))
-        crop = screen.fit(crop, max(screen.MIN_SIDE + 20, crop.size[0] * 2))
-        spot = jev.new_ref("spot")
-        import threading
-
-        ctrl = the.game.controller(hwnd, threading.Event(), cfg["counts"])
-        try:
-            ctrl.look(turn)
-        except (ValueError, RuntimeError) as exc:
-            ctrl.release_all()
-            return {"ok": False, "error": str(exc)}
-        time.sleep(0.35)
-        after = the.game.grab(hwnd, cfg["size"])
-        qs = {
-            "same": {"type": "noul", "instructions": f"Does `frame` still show the place in this picture: {spot}?"},
-            "spot": {"type": "box", "instructions": f"the part of `frame` that shows what this picture shows: {spot}"},
-        }
-        res = the._ask(after, qs, cfg["model"], extra={spot: screen.jpeg(crop)})
-        try:
-            ctrl.look(-turn)
-        finally:
-            ctrl.release_all()
-        if not res.get("ok"):
-            return res
-        same = jev.noul(res["answers"], "same")
-        edges = jev.box(res["answers"], "spot")
-        if same is None or same < 0.6 or not edges:
-            return {"ok": False, "error": "Jev lost the spot after the turn: face something with clear detail and try a smaller turn_degrees."}
-        moved = 0.5 - (edges["left"] + edges["right"]) / 2.0
-        seen_deg = moved * policy.DEFAULTS["hfov"]
-        if abs(seen_deg) < 1.0 or (seen_deg > 0) != (turn > 0):
-            return {"ok": False, "error": "The view barely moved or moved the wrong way: check Fortnite has focus, then try again."}
-        counts = round(cfg["counts"] * turn / seen_deg)
-        counts = int(min(100000, max(50, counts)))
-        _save_setting("look_counts", str(counts))
-        the.manual("calibrate", after, {}, [{"look": turn}, {"look": -turn}], [], f"calibrate: turned {turn:g}°, saw {seen_deg:.1f}° -> {counts} counts per 90°", t0)
-        return {"ok": True, "counts_per_90": counts, "was": int(cfg["counts"]), "asked_deg": turn,
-                "seen_deg": round(seen_deg, 1), "confidence": edges.get("confidence"), "saved": True}
-
-    # ---------------------------------------------------------------- runs
-
-    def where(target_actor: str = "", target_xyz: Any = "") -> dict[str, Any]:
-        pose = the.pose()
-        if not pose:
-            state = beacon_state()
-            msg = ("The beacon printed, but not in the last few seconds: is the session still running?" if state["seen"]
-                   else "No beacon position yet: add the Play Tester beacon device to the island.")
-            return {"ok": False, "error": msg, "beacon": state, "how": BEACON_HOW}
-        out: dict[str, Any] = {"ok": True, "pose": {k: round(float(pose[k]), 1) for k in ("x", "y", "z", "yaw", "pitch")},
-                               "age_s": pose["age_s"]}
-        place = the.target_point(target_actor, target_xyz)
-        if not place.get("ok"):
-            return {**out, "ok": False, "error": place.get("error")}
-        if place.get("point"):
-            rel = geo.relate(pose, place["point"])
-            out.update({"target_point": place["point"], "rel": rel, "say": geo.describe(rel)})
+    def close_tester(tester: str = "") -> dict[str, Any]:
+        if not str(tester or "").strip():
+            return {"ok": False, "error": "Say which tester to close (playtester_testers lists them)."}
+        out = mgr.close(tester)
+        out["testers"] = summaries()
         return out
+
+    # ---------------------------------------------------------------- Fortnite's beacon
 
     def add_beacon() -> dict[str, Any]:
         """Write the beacon's Verse file into the open project (Ducky's project writer, so Changes can undo it)."""
@@ -458,9 +160,10 @@ def register(api: Any) -> None:
         return {"ok": True, "added": True, "path": made["path"]}
 
     def beacon_tool(add: Any = False) -> dict[str, Any]:
-        out: dict[str, Any] = {"ok": True, "beacon": beacon_state(), "template": "playtester_beacon",
+        fortnite = mgr.get(DEFAULT)
+        out: dict[str, Any] = {"ok": True, "beacon": fortnite.beacon_state() if fortnite else None, "template": "playtester_beacon",
                                "file": "Content/Verse/PlayTester/playtester_beacon_device.verse", "how": BEACON_HOW}
-        if _bool(add):
+        if to_bool(add):
             made = add_beacon()
             if not made.get("ok"):
                 return {**out, "ok": False, "error": made["error"]}
@@ -469,216 +172,194 @@ def register(api: Any) -> None:
                            "in the level, then launch the session.")
         return out
 
-    def run(goal: str = "", target: str = "", success: str = "", interact: Any = False, max_steps: Any = 0,
-            max_seconds: Any = 0, dry_run: Any = False, wait_s: Any = 20, origin: str = "tool",
-            target_actor: str = "", target_xyz: Any = "", success_print: str = "", record: Any = False) -> dict[str, Any]:
-        started = the.start(goal=goal, target=target, success=success, interact=_bool(interact),
-                            max_steps=int(_num(max_steps)), max_seconds=_num(max_seconds), dry_run=_bool(dry_run),
-                            origin=origin, target_actor=target_actor, target_xyz=target_xyz, success_print=success_print,
-                            record=_bool(record))
-        if not started.get("ok"):
-            return started
-        wait = min(25.0, max(0.0, _num(wait_s, 20)))
-        if not wait:
-            return started
-        out = the.wait(started["run_id"], wait)
-        if out.get("ok") and not out.get("finished"):
-            out["next"] = f"Still playing: playtester_wait('{started['run_id']}') for the result, or playtester_stop."
-        if started.get("note"):
-            out["note"] = started["note"]
-        return out
+    def level_map(tester: Any = "", refresh: Any = False) -> dict[str, Any]:
+        def read(t: Tester) -> dict[str, Any]:
+            out = t.level_map(to_bool(refresh))
+            if out.get("actors") and len(out["actors"]) > 80:
+                out["actors_shown"] = 80
+                out["actors"] = out["actors"][:80]
+            return out
 
-    def get_run(run_id: str = "", from_step: Any = 0) -> dict[str, Any]:
-        rid = runs.clean_id(run_id)
-        if not rid:
-            latest = store.latest()
-            rid = str(latest.get("id")) if latest else ""
-        doc = store.get(rid) if rid else None
-        if not doc:
-            return {"ok": False, "error": "No play test has run yet." if not rid else f"No run {rid}."}
-        first = int(_num(from_step))
-        steps = [s for s in doc.get("steps") or [] if int(s.get("n") or 0) > first]
-        return {"ok": True, "run": {**{k: v for k, v in doc.items() if k != "steps"}, "steps": steps}}
-
-    def list_runs(limit: Any = 10) -> dict[str, Any]:
-        rows = store.summaries(int(min(50, max(1, _num(limit, 10)))))
-        return {"ok": True, "runs": rows, "count": len(rows)}
-
-    def frame_bytes(run_id: str = "", step: Any = 0) -> tuple[str, int, bytes | None]:
-        rid = runs.clean_id(run_id)
-        if not rid:
-            latest = store.latest()
-            rid = str(latest.get("id")) if latest else ""
-        doc = store.get(rid) if rid else None
-        if not doc:
-            return rid, 0, None
-        n = int(_num(step))
-        if n <= 0:
-            steps = doc.get("steps") or []
-            n = int(steps[-1].get("n") or 0) if steps else 0
-        if n <= 0:
-            return rid, 0, None
-        return rid, n, store.read_frame(rid, the.frame_slot(rid, n))
-
-    def frame(run_id: str = "", step: Any = 0) -> dict[str, Any]:
-        rid, n, data = frame_bytes(run_id, step)
-        if data is None:
-            return {"ok": False, "error": "No saved frame for that run and step."}
-        path = store.frame_path(rid, the.frame_slot(rid, n))
-        return {"ok": True, "run_id": rid, "step": n, "path": path,
-                "files": [{"kind": "image", "path": path, "name": f"Play Tester {rid} step {n}"}]}
+        return on(tester or DEFAULT, read)
 
     # ---------------------------------------------------------------- MCP tools
 
     @api.tool(intent=INTENT, listener=False)
-    def playtester_status() -> dict:
-        """Check whether Play Tester can play test in game now: Fortnite client open and in play mode, which brain answers (TypeSafe key, Ducky AI or a gateway), model, running test."""
-        return status()
+    def playtester_status(tester: str = "") -> dict:
+        """Can Play Tester play test now: the game open and in play, which brain answers (TypeSafe key, Ducky AI or a gateway), the running test, and every open tester (testers)."""
+        return status(tester)
+
+    @api.tool(intent=INTENT, listener=False)
+    def playtester_targets(thumbnails: bool = False) -> dict:
+        """What can be play tested: presets (fortnite, godot, unreal, roblox, web:<url>) and the open game windows (window:<exe>), plus the open testers."""
+        return target_list(thumbnails)
+
+    @api.tool(intent=INTENT, listener=False)
+    def playtester_open(target: str = "", label: str = "", profile: str = "", view: str = "", game_name: str = "",
+                        keys: str = "", player: str = "", settle_s: float = 0) -> dict:
+        """Open a tester for another game; it becomes a tab in Play Tester and its tester id goes to every other tool.
+
+        target: fortnite | godot[:<project folder>] | unreal[:<exe>] | roblox | web:<url or localhost:port> |
+        window:<exe or part of the title>. profile: how it is played: fps, tps, roblox, side2d (platformer),
+        topdown, pointclick (default from the target). view: change just the view. game_name: what Jev calls the
+        game. keys: the game's own keys for the moves, e.g. "SPACE=ARROWUP, E=F". player (Godot): the player node
+        path for positions. Several testers run at once: desktop windows take turns pressing keys, Godot and web
+        testers never wait.
+        """
+        return open_tester(target, label, profile, view, game_name, keys, player, settle_s or None)
+
+    @api.tool(intent=INTENT, listener=False)
+    def playtester_close(tester: str = "") -> dict:
+        """Close a tester (and its tab): stops its run, closes its browser tab, forgets its runs. The Fortnite tester stays."""
+        return close_tester(tester)
+
+    @api.tool(intent=INTENT, listener=False)
+    def playtester_testers() -> dict:
+        """Every open tester: id, game, target, running run, waiting for its turn."""
+        return {"ok": True, "testers": summaries()}
 
     @api.tool(intent=INTENT, listener=False)
     def playtester_run(goal: str = "", target: str = "", success: str = "", interact: bool = False,
                        max_steps: int = 0, max_seconds: float = 0, dry_run: bool = False, wait_s: float = 20,
-                       target_actor: str = "", target_xyz: str = "", success_print: str = "", record: bool = False) -> dict:
-        """Play test in game: Jev drives the Fortnite player toward a goal about once a second and returns what happened.
+                       target_actor: str = "", target_xyz: str = "", success_print: str = "", record: bool = False,
+                       tester: str = "") -> dict:
+        """Play test in game: Jev drives the player toward a goal about once a second and returns what happened.
 
+        tester: which game (playtester_open gives the id; empty = the one this chat used last, else Fortnite).
         goal: what to do ("walk to the red button and press it"). target: the thing to walk to
-        ("the red button"), found with Jev's Box. target_actor: the level actor's label, or target_xyz
+        ("the red button"), found with Jev's Box. target_actor (Fortnite): the level actor's label, or target_xyz
         "x,y,z" in centimetres: with the beacon device in the island the player is steered by world
         coordinates too, so targets behind the player, behind buildings or on another floor are found.
         success: a yes/no check Jev answers on each frame ("Is the door open?"); the run succeeds when it
-        holds twice. success_print: text a Verse Print shows when the test passed ("coin collected",
-        "[PTEVENT] door open"); the run passes the moment the island prints it, exact and instant.
-        interact: hold E at the target. dry_run: decide and show moves without pressing
-        anything. record: film the run with Island Media Kit (skipped when it isn't installed); the result's
-        clip_id and clip_file name the recording. Waits up to wait_s (max 25) and returns the result or the run
-        id to playtester_wait on.
+        holds twice. success_print (Fortnite): text a Verse Print shows when the test passed ("coin collected");
+        the run passes the moment the island prints it. interact: hold the use key at the target. dry_run: decide
+        and show moves without pressing anything. record: film the run with Island Media Kit (Fortnite). Waits up
+        to wait_s (max 25) and returns the result or the run id to playtester_wait on.
         """
-        return run(goal, target, success, interact, max_steps, max_seconds, dry_run, wait_s, "tool", target_actor, target_xyz,
-                   success_print, record)
+        return on(tester, lambda t: t.run(goal, target, success, interact, max_steps, max_seconds, dry_run, wait_s, "tool",
+                                          target_actor, target_xyz, success_print, record))
 
     @api.tool(intent=INTENT, listener=False)
-    def playtester_map(refresh: bool = False) -> dict:
-        """The island's layout for play tests: every device's label and position (x, y, z) read from UEFN, plus landmarks the beacon prints."""
-        out = level_map(_bool(refresh))
-        try:
-            out["printed_landmarks"] = [{"name": k, **{c: round(v[c], 1) for c in ("x", "y", "z")}} for k, v in bcn.marks().items()]
-        except Exception:
-            out["printed_landmarks"] = []
-        if out.get("actors") and len(out["actors"]) > 80:
-            out["actors_shown"] = 80
-            out["actors"] = out["actors"][:80]
-        return out
+    def playtester_map(refresh: bool = False, tester: str = "") -> dict:
+        """The Fortnite island's layout for play tests: every device's label and position (x, y, z) read from UEFN, plus landmarks the beacon prints."""
+        return level_map(tester, refresh)
 
     @api.tool(intent=INTENT, listener=False)
-    def playtester_where(target_actor: str = "", target_xyz: str = "") -> dict:
-        """Where the player is in the world (x, y, z, facing) from the beacon, and how far and which way a target is: behind, another floor."""
-        return where(target_actor, target_xyz)
+    def playtester_where(target_actor: str = "", target_xyz: str = "", tester: str = "") -> dict:
+        """Where the player is in the world and how far and which way a target is (Fortnite: the beacon; Godot: node positions, target_actor = a node path)."""
+        return on(tester, lambda t: t.where(target_actor, target_xyz))
 
     @api.tool(intent=INTENT, listener=False)
     def playtester_beacon(add: bool = False) -> dict:
-        """Check the Play Tester beacon device that reports the player's world position; add=true puts its Verse file in the project."""
+        """Check the Play Tester beacon device that reports the Fortnite player's world position; add=true puts its Verse file in the project."""
         return beacon_tool(add)
 
     @api.tool(intent=INTENT, listener=False)
-    def playtester_wait(run_id: str = "", timeout_s: float = 20) -> dict:
+    def playtester_wait(run_id: str = "", timeout_s: float = 20, tester: str = "") -> dict:
         """Wait (max 25 s) for a play test run to finish and return its result, steps and last frame."""
-        return the.wait(run_id, timeout_s)
+        return on(tester, lambda t: t.wait(run_id, timeout_s))
 
     @api.tool(intent=INTENT, listener=False)
-    def playtester_stop(run_id: str = "") -> dict:
-        """Stop the running play test (or a given run) after its current step; every key is released."""
-        return the.stop(run_id)
+    def playtester_stop(run_id: str = "", tester: str = "") -> dict:
+        """Stop a tester's running play test (or a given run) after its current step; every key is released."""
+        return on(tester, lambda t: t.stop(run_id))
 
     @api.tool(intent=INTENT, listener=False)
-    def playtester_check(questions: dict | str = "") -> dict:
-        """Look at the game once with Jev: answer your own yes/no, choice, score or box questions about the current Fortnite frame.
+    def playtester_check(questions: dict | str = "", tester: str = "") -> dict:
+        """Look at the game once with Jev: answer your own yes/no, choice, score or box questions about the current frame.
 
         questions: {id: {type: noul|choice|score|box, instructions, criteria?}}; call the frame `frame`,
         for example {"open": {"type": "noul", "instructions": "Is the door in `frame` open?"}}.
         """
-        return check(questions)
+        return on(tester, lambda t: t.check(questions))
 
     @api.tool(intent=INTENT, listener=False)
-    def playtester_find(target: str = "") -> dict:
-        """Find something on the Fortnite screen with Jev: is it visible, which side, and its box."""
-        return find(target)
+    def playtester_find(target: str = "", tester: str = "") -> dict:
+        """Find something on the game's screen with Jev: is it visible, which side, and its box."""
+        return on(tester, lambda t: t.find(target))
 
     @api.tool(intent=INTENT, listener=False)
-    def playtester_press(keys: str = "", seconds: float = 0.5) -> dict:
-        """Press and hold keys in the Fortnite client (W, A, S, D, SPACE, E, SHIFT, CTRL, digits) for 0.05-3 s; shown in the tab."""
-        return press(keys, seconds)
+    def playtester_press(keys: str = "", seconds: float = 0.5, tester: str = "") -> dict:
+        """Press and hold keys in the game (W, A, S, D, SPACE, E, SHIFT, CTRL, digits, ARROWUP…) for 0.05-3 s; the tester's key map applies; shown in its tab."""
+        return on(tester, lambda t: t.press(keys, seconds))
 
     @api.tool(intent=INTENT, listener=False)
-    def playtester_look(dx_degrees: float = 0, dy_degrees: float = 0) -> dict:
-        """Turn the Fortnite camera with the mouse: dx_degrees right (negative = left), dy_degrees down (negative = up)."""
-        return look(dx_degrees, dy_degrees)
+    def playtester_look(dx_degrees: float = 0, dy_degrees: float = 0, tester: str = "") -> dict:
+        """Turn the game's camera: dx_degrees right (negative = left), dy_degrees down (negative = up). In a side or top-down game it turns which way the player walks."""
+        return on(tester, lambda t: t.look(dx_degrees, dy_degrees))
 
     @api.tool(intent=INTENT, listener=False)
-    def playtester_click(button: str = "", seconds: float = 0.05) -> dict:
-        """Click or hold a mouse button in the Fortnite client: left fires or uses, right aims."""
-        return click(button, seconds)
+    def playtester_click(button: str = "", seconds: float = 0.05, x: float = -1, y: float = -1, tester: str = "") -> dict:
+        """Click or hold a mouse button in the game: left fires or uses, right aims. x and y (0..1 across and down the picture) click that point, for menus and point-and-click games."""
+        at = (x, y) if x >= 0 and y >= 0 else (None, None)
+        return on(tester, lambda t: t.click(button, seconds, *at))
 
     @api.tool(intent=INTENT, listener=False)
-    def playtester_calibrate(turn_degrees: float = 0) -> dict:
-        """Measure the Fortnite mouse speed for Play Tester turns: turns turn_degrees (try 20), finds the same spot with Jev, saves it."""
-        return calibrate(turn_degrees)
+    def playtester_calibrate(turn_degrees: float = 0, tester: str = "") -> dict:
+        """Measure the game's mouse speed for Play Tester turns: turns turn_degrees (try 20), finds the same spot with Jev, saves it for that tester."""
+        return on(tester, lambda t: t.calibrate(turn_degrees))
 
     @api.tool(intent=INTENT, listener=False)
-    def playtester_lessons(target: str = "", limit: int = 10) -> dict:
+    def playtester_lessons(target: str = "", limit: int = 10, tester: str = "") -> dict:
         """What past play tests taught about a target: success rate, average steps, what blocked runs, where it was found, tips.
 
-        Empty target: every target tested on this island with runs and wins. Read it before a
-        playtester_run on a target that failed before; the next run of a target already starts
-        from this memory (scan side, remembered position with the beacon).
+        Empty target: every target tested in this game with runs and wins. Read it before a playtester_run on a
+        target that failed before; the next run of a target already starts from this memory.
         """
-        return the.lessons(target, int(_num(limit, 10)))
+        return on(tester, lambda t: t.lessons(target, limit))
 
     @api.tool(intent=INTENT, listener=False)
-    def playtester_get_run(run_id: str = "", from_step: int = 0) -> dict:
+    def playtester_get_run(run_id: str = "", from_step: int = 0, tester: str = "") -> dict:
         """Read a play test run step by step: Jev's answers, the keys and turns, the reason and timings (latest run when empty)."""
-        return get_run(run_id, from_step)
+        return on(tester, lambda t: t.get_run(run_id, from_step))
 
     @api.tool(intent=INTENT, listener=False)
-    def playtester_list_runs(limit: int = 10) -> dict:
-        """List recent play test runs with their goal, result, steps and time."""
-        return list_runs(limit)
+    def playtester_list_runs(limit: int = 10, tester: str = "") -> dict:
+        """List a tester's recent play test runs with their goal, result, steps and time."""
+        return on(tester, lambda t: t.list_runs(limit))
 
     @api.tool(intent=INTENT, listener=False)
-    def playtester_frame(run_id: str = "", step: int = 0) -> dict:
-        """Get the saved Fortnite frame of a play test step as an image (last step of the latest run when empty)."""
-        return frame(run_id, step)
+    def playtester_frame(run_id: str = "", step: int = 0, tester: str = "") -> dict:
+        """Get the saved frame of a play test step as an image (last step of the latest run when empty)."""
+        return on(tester, lambda t: t.frame(run_id, step))
 
-    # ---------------------------------------------------------------- panel calls
+    # ---------------------------------------------------------------- panel calls (every one takes tester)
 
-    def rpc_frame(run_id: str = "", step: Any = 0, width: Any = 0) -> dict[str, Any]:
-        rid, n, data = frame_bytes(run_id, step)
-        if data is None:
-            return {"ok": False, "error": "No saved frame."}
-        return {"ok": True, "run_id": rid, "step": n, "src": screen.data_uri(data, int(_num(width)))}
+    def open_panes() -> set[str]:
+        return {str((t.target.spec or {}).get("pane") or "") for t in mgr.list() if t.target.kind == "web"} - {""}
 
-    def set_brain(brain: str = "", pick: str = "") -> dict[str, Any]:
-        """The tab's Who answers: a model-picker pick ('typesafe:jev-1.14.0', 'openai:gpt-…', 'auto') or a brain name."""
-        values = brains.from_pick(pick) if pick else {"brain": str(brain or "").strip().lower()}
-        if not values or values["brain"] not in brains.BRAINS:
-            return {"ok": False, "error": f"Pick a model, or a brain: {', '.join(brains.BRAINS)}"}
-        for key, value in values.items():
-            _save_setting(key, value)
-        return status()
+    def rpc_web_op(op: str = "", pane: str = "", args: Any = None) -> dict[str, Any]:
+        """A browser tester's page work in Ducky's window; only for panes Play Tester opened itself."""
+        if str(pane or "") not in open_panes():
+            return {"ok": False, "error": "That browser tab isn't a Play Tester tab."}
+        return targets.web_op(op, pane, args if isinstance(args, dict) else {})
 
-    api.register_panel_rpc("status", lambda: status())
-    api.register_panel_rpc("set_brain", set_brain)
-    api.register_panel_rpc("run", lambda goal="", target="", success="", interact=False, dry_run=False, max_steps=0,
-                           target_actor="", target_xyz="", success_print="":
-                           run(goal, target, success, interact, max_steps, 0, dry_run, 0, "tab", target_actor, target_xyz,
-                               success_print))
-    api.register_panel_rpc("stop", lambda run_id="": the.stop(run_id))
-    api.register_panel_rpc("get_run", lambda run_id="", from_step=0: get_run(run_id, from_step))
-    api.register_panel_rpc("list_runs", lambda limit=15: list_runs(limit))
-    api.register_panel_rpc("frame", rpc_frame)
-    api.register_panel_rpc("press", lambda keys="", seconds=0.3: press(keys, seconds))
-    api.register_panel_rpc("look", lambda dx_degrees=0, dy_degrees=0: look(dx_degrees, dy_degrees))
+    rpc = api.register_panel_rpc
+    rpc("status", lambda tester="": status(tester))
+    rpc("testers", lambda: {"ok": True, "testers": summaries()})
+    rpc("targets", lambda thumbnails=True: target_list(thumbnails))
+    rpc("open", lambda target="", label="", profile="", view="", game_name="", keys="", player="":
+        open_tester(target, label, profile, view, game_name, keys, player))
+    rpc("close", lambda tester="": close_tester(tester))
+    rpc("rename", lambda tester="", label="": mgr.rename(tester, label))
+    def set_brain(t: Tester, pick: str, brain: str) -> dict[str, Any]:
+        out = t.set_brain(pick, brain)
+        return t.status() if out.get("ok") else out
 
-    # ---------------------------------------------------------------- workflow nodes
+    rpc("set_brain", lambda tester="", pick="", brain="": on(tester, lambda t: set_brain(t, pick, brain)))
+    rpc("run", lambda goal="", target="", success="", interact=False, dry_run=False, max_steps=0, target_actor="",
+        target_xyz="", success_print="", tester="":
+        on(tester, lambda t: t.run(goal, target, success, interact, max_steps, 0, dry_run, 0, "tab", target_actor, target_xyz,
+                                   success_print)))
+    rpc("stop", lambda run_id="", tester="": on(tester, lambda t: t.stop(run_id)))
+    rpc("get_run", lambda run_id="", from_step=0, tester="": on(tester, lambda t: t.get_run(run_id, from_step)))
+    rpc("list_runs", lambda limit=15, tester="": on(tester, lambda t: t.list_runs(limit)))
+    rpc("frame", lambda run_id="", step=0, width=0, tester="": on(tester, lambda t: t.rpc_frame(run_id, step, width)))
+    rpc("press", lambda keys="", seconds=0.3, tester="": on(tester, lambda t: t.press(keys, seconds)))
+    rpc("look", lambda dx_degrees=0, dy_degrees=0, tester="": on(tester, lambda t: t.look(dx_degrees, dy_degrees)))
+    rpc("web_op", rpc_web_op)
+
+    # ---------------------------------------------------------------- workflow nodes (config tester picks the game)
 
     def _cfg(ctx: dict[str, Any]) -> dict[str, Any]:
         return ctx.get("config") if isinstance(ctx.get("config"), dict) else {}
@@ -686,78 +367,86 @@ def register(api: Any) -> None:
     def _inputs(ctx: dict[str, Any]) -> dict[str, Any]:
         return ctx.get("inputs") if isinstance(ctx.get("inputs"), dict) else {}
 
+    def _tester(ctx: dict[str, Any]) -> str:
+        return str(_inputs(ctx).get("tester") or _cfg(ctx).get("tester") or "")
+
     @api.register_pipeline_node("playtester.status")
     def node_status(ctx: dict) -> dict:
-        out = status()
-        return {**out, "ready": out["ready"], "next": out["next"]}
+        out = status(_tester(ctx))
+        return {**out, "ready": bool(out.get("ready")), "next": out.get("next", out.get("error", ""))}
+
+    @api.register_pipeline_node("playtester.open")
+    def node_open(ctx: dict) -> dict:
+        cfg, ins = _cfg(ctx), _inputs(ctx)
+        want = str(ins.get("target") or cfg.get("target") or "")
+        label = str(cfg.get("label") or "")
+        existing = next((t for t in mgr.list() if label and t.label == label), None)
+        if existing is not None:  # a workflow run again reuses its tester
+            return {"ok": True, "tester": existing.id, "summary": f"{existing.label} is open"}
+        out = open_tester(want, label, str(cfg.get("profile") or ""), str(cfg.get("view") or ""),
+                          str(cfg.get("game_name") or ""), str(cfg.get("keys") or ""), str(cfg.get("player") or ""))
+        tid = (out.get("tester") or {}).get("id") if out.get("ok") else ""
+        return {**out, "tester": tid or "", "summary": out.get("next") or out.get("error", "")}
 
     @api.register_pipeline_node("playtester.check")
     def node_check(ctx: dict) -> dict:
         cfg, ins = _cfg(ctx), _inputs(ctx)
-        out = check(ins.get("questions") or cfg.get("questions"))
+        out = on(_tester(ctx), lambda t: t.check(ins.get("questions") or cfg.get("questions")))
         return {**out, "answers": out.get("answers") or {}}
 
     @api.register_pipeline_node("playtester.run")
     def node_run(ctx: dict) -> dict:
         cfg, ins = _cfg(ctx), _inputs(ctx)
         goal = str(ins.get("goal") or cfg.get("goal") or "")
-        out = run(goal, str(cfg.get("target") or ""), str(cfg.get("success") or ""), cfg.get("interact"),
-                  cfg.get("max_steps"), 0, cfg.get("dry_run"), 0, "workflow",
-                  str(cfg.get("target_actor") or ""), str(cfg.get("target_xyz") or ""), str(cfg.get("success_print") or ""))
-        if not out.get("ok"):
-            return {**out, "status": "failed", "summary": out.get("error", "")}
-        rid = out["run_id"]
-        result = the.wait(rid, 25)
-        deadline = time.time() + pilot.LIMIT_SECONDS + 30
-        while result.get("ok") and not result.get("finished") and time.time() < deadline:
-            result = the.wait(rid, 25)
-        return {**result, "status": result.get("status"), "steps": result.get("n_steps"),
-                "seconds": result.get("seconds"), "summary": result.get("reason") or result.get("last_why", ""),
-                "frame": result.get("frame", "")}
+
+        def play(t: Tester) -> dict[str, Any]:
+            out = t.run(goal, str(cfg.get("target") or ""), str(cfg.get("success") or ""), cfg.get("interact"),
+                        cfg.get("max_steps"), 0, cfg.get("dry_run"), 0, "workflow",
+                        str(cfg.get("target_actor") or ""), str(cfg.get("target_xyz") or ""), str(cfg.get("success_print") or ""))
+            if not out.get("ok"):
+                return {**out, "status": "failed", "summary": out.get("error", "")}
+            rid = out["run_id"]
+            result = t.wait(rid, 25)
+            from .pilot import LIMIT_SECONDS
+
+            deadline = time.time() + LIMIT_SECONDS + 30
+            while result.get("ok") and not result.get("finished") and time.time() < deadline:
+                result = t.wait(rid, 25)
+            return {**result, "status": result.get("status"), "steps": result.get("n_steps"),
+                    "seconds": result.get("seconds"), "summary": result.get("reason") or result.get("last_why", ""),
+                    "frame": result.get("frame", "")}
+
+        return on(_tester(ctx), play)
 
     @api.register_pipeline_node("playtester.press")
     def node_press(ctx: dict) -> dict:
         cfg = _cfg(ctx)
-        return press(cfg.get("keys") or "", _num(cfg.get("seconds"), 0.5))
+        return on(_tester(ctx), lambda t: t.press(cfg.get("keys") or "", to_num(cfg.get("seconds"), 0.5)))
 
     @api.register_pipeline_node("playtester.look")
     def node_look(ctx: dict) -> dict:
         cfg = _cfg(ctx)
-        return look(_num(cfg.get("dx_degrees")), _num(cfg.get("dy_degrees")))
+        return on(_tester(ctx), lambda t: t.look(to_num(cfg.get("dx_degrees")), to_num(cfg.get("dy_degrees"))))
 
     @api.register_pipeline_node("playtester.stop")
     def node_stop(ctx: dict) -> dict:
-        return the.stop(str(_cfg(ctx).get("run_id") or ""))
+        return on(_tester(ctx), lambda t: t.stop(str(_cfg(ctx).get("run_id") or "")))
 
     @api.register_pipeline_node("playtester.map")
     def node_map(ctx: dict) -> dict:
-        out = level_map(_bool(_cfg(ctx).get("refresh")))
+        out = level_map(_tester(ctx), _cfg(ctx).get("refresh"))
         return {**out, "count": out.get("count", 0), "summary": f"{out.get('count', 0)} devices" if out.get("ok") else out.get("error", "")}
 
     @api.register_pipeline_node("playtester.lessons")
     def node_lessons(ctx: dict) -> dict:
         cfg = _cfg(ctx)
-        out = the.lessons(str(cfg.get("target") or ""), int(_num(cfg.get("limit"), 10)))
+        out = on(_tester(ctx), lambda t: t.lessons(str(cfg.get("target") or ""), cfg.get("limit") or 10))
         return {**out, "summary": "; ".join(out.get("tips") or []) or f"{out.get('runs', 0)} runs", "success_rate": out.get("success_rate")}
 
     @api.register_pipeline_node("playtester.where")
     def node_where(ctx: dict) -> dict:
         cfg = _cfg(ctx)
-        out = where(str(cfg.get("target_actor") or ""), str(cfg.get("target_xyz") or ""))
+        out = on(_tester(ctx), lambda t: t.where(str(cfg.get("target_actor") or ""), str(cfg.get("target_xyz") or "")))
         return {**out, "say": out.get("say") or out.get("error", ""), "distance_m": (out.get("rel") or {}).get("distance_m")}
 
     api.log("Play Tester tools, nodes and panel calls registered")
-
-
-def _say(row: dict[str, Any]) -> str:
-    if row.get("noul") is not None:
-        return f"{row['noul']:.0%}"
-    if row.get("choice"):
-        p = (row.get("probabilities") or {}).get(row["choice"])
-        return f"{row['choice']}" + (f" {p:.0%}" if p is not None else "")
-    if row.get("score") is not None:
-        return f"score {row['score']:.2f}"
-    if row.get("box"):
-        b = row["box"]
-        return f"box x {b['left']:.2f}-{b['right']:.2f} y {b['top']:.2f}-{b['bottom']:.2f}"
-    return "?"

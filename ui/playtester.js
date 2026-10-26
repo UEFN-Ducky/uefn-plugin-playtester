@@ -1,7 +1,8 @@
 /* Play Tester tab: agents start runs (playtester_run), people watch them here.
-   Follows runs live (push events, with a slow poll as a safety net) and shows what the
-   agent asked for, the exact questions and rules, every step's frame, keys, Jev's
-   answers and where the player is. People can stop a run and nudge the player by hand. */
+   One inner tab per tester (a game: Fortnite, Godot, a web page, any window); the view below
+   shows the selected tester. Follows runs live (push events, with a slow poll as a safety net)
+   and shows what the agent asked for, the exact questions and rules, every step's frame, keys,
+   Jev's answers and where the player is. People can stop a run and nudge the player by hand. */
 (function () {
   "use strict";
 
@@ -67,8 +68,16 @@
     });
   }
   const rpc = (method, params = {}) => call("plugin.call", { method, params });
+  // Calls about one tester's game, runs and frames carry the selected tester.
+  const trpc = (method, params = {}) => rpc(method, { tester: state.tester, ...params });
+  const remember = (key, value) => { try { localStorage.setItem(key, value); } catch (_) { /* no storage */ } };
+  const recall = (key) => { try { return localStorage.getItem(key) || ""; } catch (_) { return ""; } };
+  const KIND_ICON = { fortnite: "i-pad", godot: "i-pad", unreal: "i-pad", roblox: "i-pad", web: "i-globe", window: "i-window" };
 
   const state = {
+    tester: recall("pt.tester") || "default",
+    testers: [],        // every open tester's summary (status.testers)
+    news: new Set(),    // testers with steps since their tab was last shown
     visible: true,
     runId: "",          // run shown
     run: null,          // its doc without steps
@@ -184,8 +193,8 @@
     }
     try {
       const out = what.keys
-        ? await rpc("press", { keys: what.keys, seconds: 0.3 })
-        : await rpc("look", { dx_degrees: what.look });
+        ? await trpc("press", { keys: what.keys, seconds: 0.3 })
+        : await trpc("look", { dx_degrees: what.look });
       if (out && out.ok === false) showErr(out.error);
       else showErr("");
     } catch (err) {
@@ -256,15 +265,15 @@
     const dot = $("mapTarget");
     const line = $("mapLine");
     const b = (state.status && state.status.beacon) || {};
-    $("beaconTag").textContent = b.on ? "beacon on" : b.seen ? `beacon quiet ${Math.round(b.age_s || 0)} s` : "beacon off";
+    $("beaconTag").textContent = b.none ? "no positions" : b.on ? "beacon on" : b.seen ? `beacon quiet ${Math.round(b.age_s || 0)} s` : "beacon off";
     if (!pose) {
       $("mapMarks").innerHTML = "";
       $("mapNear").textContent = "";
       trailEl.setAttribute("points", "");
       dot.classList.add("pt-hidden");
       line.classList.add("pt-hidden");
-      $("mapBig").textContent = b.on ? "Waiting" : "No beacon";
-      $("mapSub").textContent = b.on ? "No run yet" : "Image only";
+      $("mapBig").textContent = b.none ? "By the picture" : b.on ? "Waiting" : "No beacon";
+      $("mapSub").textContent = b.none ? `${gameName(state.status)} has no world positions` : b.on ? "No run yet" : "Image only";
       showXyz(null, target);
       return;
     }
@@ -446,7 +455,7 @@
     let full = state.frames.get(key);
     if (!full) {
       try {
-        const out = await rpc("frame", { run_id: state.runId, step: step.n });
+        const out = await trpc("frame", { run_id: state.runId, step: step.n });
         if (out && out.ok) {
           full = out.src;
           state.frames.set(key, full);
@@ -464,8 +473,9 @@
     if (step) return;
     const st = state.status || {};
     const c = st.client || {}, j = st.jev || {};
+    const game = gameName(st);
     const [ic, text] = running() ? ["i-play", "Starting…"]
-      : !c.playing || !j.key ? ["i-pad", c.loading ? "Fortnite is loading" : "Waiting for Fortnite"]
+      : !c.playing || !j.key ? ["i-pad", c.loading ? `${game} is loading` : `Waiting for ${game}`]
       : ["i-bot", "Waiting for an agent"];
     el.innerHTML = `<span class="pt-setup__icon">${icon(ic)}</span><div class="pt-setup__title">${text}</div>`;
   }
@@ -515,7 +525,7 @@
   async function lazyThumb(el, n) {
     const runId = state.runId;
     try {
-      const out = await rpc("frame", { run_id: runId, step: n, width: 160 });
+      const out = await trpc("frame", { run_id: runId, step: n, width: 160 });
       if (out && out.ok && runId === state.runId) {
         state.thumbs.set(`${runId}:${n}`, out.src);
         const img = el.querySelector("img");
@@ -683,7 +693,8 @@
         ${s.counts != null ? row("mouse", `${esc(s.counts)} counts per 90°`, "the beacon corrects it while turning") : ""}
         ${s.size != null ? row("frame size", `${esc(s.size)} px`, "the screenshot width sent to Jev") : ""}
         ${r.smooth != null ? row("smooth walk", r.smooth ? "on" : "off", "walk and turn at the same time") : ""}
-        ${r.click_focus != null ? row("click to focus", r.click_focus ? "on" : "off", "clicks Fortnite to bring it to the front") : ""}
+        ${r.click_focus != null ? row("click to focus", r.click_focus ? "on" : "off", "clicks the game to bring it to the front") : ""}
+        ${r.profile ? row("played as", esc(`${r.profile.view} · ${r.profile.look}`), r.profile.keys && Object.keys(r.profile.keys).length ? esc(Object.entries(r.profile.keys).map(([k, v]) => `${k}→${v}`).join(", ")) : "the game's own keys") : ""}
         ${row("tokens", `${esc(tk.input || 0)} in, ${esc(tk.output || 0)} out`)}
       </div>`;
     }
@@ -691,7 +702,7 @@
 
   function eventText(e) {
     if (e.kind === "print") return `Verse printed: ${e.text}`;
-    if (e.kind === "focus") return e.ok ? `Brought Fortnite to the front (${e.method || "focus"}${e.ms != null ? `, ${e.ms} ms` : ""})` : `Couldn't bring Fortnite to the front (${e.method || "focus"})`;
+    if (e.kind === "focus") return e.ok ? `Brought the game to the front (${e.method || "focus"}${e.ms != null ? `, ${e.ms} ms` : ""})` : `Couldn't bring the game to the front (${e.method || "focus"})`;
     if (e.kind === "jev_error") return `${e.status ? `HTTP ${e.status}: ` : ""}${e.error || ""}`;
     if (e.kind === "cut_short") return `step ${e.step}: ${e.why}`;
     if (e.text || e.why) return e.text || e.why;
@@ -709,7 +720,7 @@
 
   async function loadRuns(keep) {
     try {
-      const out = await rpc("list_runs", { limit: 15 });
+      const out = await trpc("list_runs", { limit: 15 });
       const sel = $("runPick");
       const rows = (out && out.runs) || [];
       sel.innerHTML = rows.length ? rows.map((r) => `<option value="${esc(r.id)}">${esc(runLabel(r))}</option>`).join("") : `<option value="">No runs yet</option>`;
@@ -729,7 +740,7 @@
     state.selected = 0;
     if (state.runId) {
       try {
-        const out = await rpc("get_run", { run_id: state.runId });
+        const out = await trpc("get_run", { run_id: state.runId });
         if (out && out.ok) {
           const { steps, ...meta } = out.run;
           state.run = meta;
@@ -753,21 +764,30 @@
     return row ? (pick.startsWith("typesafe:") ? `${row.name} · TypeSafe` : row.name) : pick.slice(pick.indexOf(":") + 1);
   }
 
+  function gameName(st) {
+    return (st && st.tester && st.tester.label) || (st && st.target && st.target.label) || "the game";
+  }
+
   // One short line per check; the "?" (or the pill) opens the explanation.
   function paintReady(st) {
     const c = st.client || {}, j = st.jev || {}, b = st.beacon || {};
     const model = String(j.model || "").replace(/^jev-/, "");
+    const fortnite = !st.target || st.target.kind === "fortnite";
+    const game = gameName(st);
     const checks = [
-      c.playing ? ["fortnite", "is-ok", "i-check", "In the island", ""]
-        : c.loading ? ["fortnite", "is-warn", "i-dot", "Fortnite is loading", "Wait for the island"]
-        : ["fortnite", "is-bad", "i-x", "Fortnite isn't open", "Launch Session in UEFN"],
+      c.playing ? ["game", "is-ok", "i-check", fortnite ? "In the island" : `${esc(game)} is open`, ""]
+        : c.loading ? ["game", "is-warn", "i-dot", `${esc(game)} is loading`, fortnite ? "Wait for the island" : "Wait a moment"]
+        : ["game", "is-bad", "i-x", `${esc(game)} isn't open`, fortnite ? "Launch Session in UEFN" : esc(c.error || "Start the game")],
       !j.key ? ["jev", "is-bad", "i-x", "No brain", "TypeSafe key, Ducky AI sign-in or a gateway model"]
         : j.brain === "gateway" ? ["jev", "is-ok", "i-check", esc(j.gateway || "Gateway model"), "No box"]
         : ["jev", "is-ok", "i-check", `Jev ${esc(model)}${j.brain === "ducky_ai" ? " · Ducky AI" : ""}`, j.box ? "" : "No box"],
-      b.on ? ["beacon", "is-ok", "i-check", "Beacon on", ""]
+      b.none ? null
+        : b.on ? ["beacon", "is-ok", "i-check", "Beacon on", ""]
         : b.seen ? ["beacon", "is-warn", "i-dot", "Beacon quiet", `No position for ${Math.round(b.age_s || 0)} s`]
         : ["beacon", "is-warn", "i-dot", "Beacon off", "No world positions"],
-    ];
+      st.waiting ? ["tabs", "is-warn", "i-dot", "Waiting for its turn", "Another tester is pressing keys"] : null,
+    ].filter(Boolean);
+    $("ready").style.setProperty("grid-template-columns", `repeat(${checks.length}, minmax(0, 1fr))`);
     $("brainPick").textContent = `Who answers: ${brainLabel(j)}`;
     const problem = !c.playing || !j.key;
     $("ready").classList.toggle("pt-hidden", !problem);
@@ -781,11 +801,112 @@
 
   async function refreshStatus() {
     try {
-      const st = await rpc("status");
+      const st = await trpc("status");
+      if (st && st.ok === false && /No tester/.test(st.error || "")) {
+        await switchTester("default");  // its tester was closed (here, by an agent or in another window)
+        return;
+      }
       state.status = st;
+      if (Array.isArray(st.testers)) { state.testers = st.testers; renderTabs(); }
       paintReady(st);
       paintBrief();
       if (!state.steps.length) select(0);
+    } catch (err) {
+      showErr(err.message);
+    }
+  }
+
+  // ------------------------------------------------------------------ tester tabs
+
+  function tabDot(t) {
+    if (t.waiting) return "is-wait";
+    if (t.running) return "is-run";
+    const last = (t.last && t.last.status) || "";
+    return ["success", "done"].includes(last) ? "is-good" : ["failed", "blocked", "timeout"].includes(last) ? "is-bad" : "";
+  }
+
+  function renderTabs() {
+    const wrap = $("tabs");
+    const rows = state.testers.length ? state.testers : [{ id: "default", label: "Fortnite", default: true, target: { kind: "fortnite" } }];
+    wrap.innerHTML = rows.map((t) => {
+      const on = t.id === state.tester;
+      const kind = (t.target && t.target.kind) || "window";
+      const fresh = state.news.has(t.id) && !on ? " is-new" : "";
+      return `<div class="pt-tab" role="tab" tabindex="${on ? 0 : -1}" aria-selected="${on}" data-tester="${esc(t.id)}" title="${esc(t.label)}${t.target && t.target.exe ? ` (${esc(t.target.exe)})` : ""}">
+        <svg class="ico"><use href="#${KIND_ICON[kind] || "i-window"}"/></svg>
+        <span class="pt-tab__name">${esc(t.label)}</span>
+        ${t.waiting ? `<span class="pt-tab__wait">waiting</span>` : ""}
+        <span class="pt-tab__dot ${tabDot(t)}${fresh}"></span>
+        ${t.default ? "" : `<button type="button" class="pt-tab__x" data-close="${esc(t.id)}" aria-label="Close ${esc(t.label)}"><svg class="ico"><use href="#i-x"/></svg></button>`}
+      </div>`;
+    }).join("");
+  }
+
+  async function switchTester(id) {
+    if (!id) return;
+    state.tester = id;
+    remember("pt.tester", id);
+    state.news.delete(id);
+    state.status = null;
+    setFollow(true);
+    renderTabs();
+    await refreshStatus();
+    const run = await loadRuns("");
+    await openRun(run);
+  }
+
+  async function closeTester(id) {
+    const t = state.testers.find((x) => x.id === id);
+    try {
+      const ok = await call("ui.confirm", { title: "Close tester", message: `Close ${t ? t.label : id}? Its run stops and its runs are forgotten.`, confirm: "Close", danger: true });
+      if (!ok || !ok.confirmed) return;
+      const out = await rpc("close", { tester: id });
+      if (out && out.ok === false) return showErr(out.error);
+      state.testers = (out && out.testers) || state.testers.filter((x) => x.id !== id);
+      if (state.tester === id) await switchTester("default");
+      else renderTabs();
+    } catch (err) {
+      showErr(err.message);
+    }
+  }
+
+  function optRow(pic, name, sub, data) {
+    const attrs = Object.entries(data).map(([k, v]) => `data-${k}="${esc(v)}"`).join(" ");
+    return `<button type="button" class="pt-opt" ${attrs}><span class="pt-opt__pic">${pic}</span>
+      <span class="pt-opt__text"><span class="pt-opt__name">${esc(name)}</span><span class="pt-opt__sub">${esc(sub)}</span></span></button>`;
+  }
+
+  async function openNewMenu() {
+    const menu = $("newMenu");
+    const r = $("addTester").getBoundingClientRect();
+    menu.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - 392))}px`;
+    menu.style.top = `${r.bottom + 4}px`;
+    $("newWeb").classList.add("pt-hidden");
+    $("newWindows").innerHTML = `<div class="pt-note">Looking for open game windows…</div>`;
+    menu.showPopover();
+    try {
+      const out = await rpc("targets", { thumbnails: true });
+      const taken = new Set(state.testers.map((t) => (t.target && t.target.kind) === "fortnite" ? "fortnite" : ""));
+      $("newPresets").innerHTML = (out.presets || []).filter((p) => !(p.kind === "fortnite" && taken.has("fortnite")))
+        .map((p) => optRow(icon(KIND_ICON[p.kind] || "i-pad"), p.label, p.hint || "", { target: p.target, web: p.needs_url ? "1" : "" })).join("")
+        || `<div class="pt-note">Every preset is open.</div>`;
+      const wins = out.windows || [];
+      $("newWindows").innerHTML = wins.length
+        ? wins.map((w) => optRow(w.thumb ? `<img alt="" src="${w.thumb}">` : icon("i-window"), w.title, `${w.exe || ""} · ${w.width}×${w.height}`,
+          { target: `window:${w.exe || w.title}`, label: w.title })).join("")
+        : `<div class="pt-note">No game windows are open. Start the game, then press + again.</div>`;
+    } catch (err) {
+      $("newWindows").innerHTML = `<div class="pt-note">${esc(err.message)}</div>`;
+    }
+  }
+
+  async function openTester(target, label) {
+    try {
+      const out = await rpc("open", { target, label: label || "", profile: $("newProfile").value });
+      if (!out || out.ok === false) return showErr((out && out.error) || "Could not open the tester.");
+      $("newMenu").hidePopover();
+      showErr("");
+      await switchTester(out.tester.id);
     } catch (err) {
       showErr(err.message);
     }
@@ -804,7 +925,28 @@
 
   // ------------------------------------------------------------------ live
 
+  // Events from other testers only light up their tab.
+  function mine(ev) {
+    const from = ev.tester || "default";
+    if (from === state.tester) return true;
+    const t = state.testers.find((x) => x.id === from);
+    if (t) {
+      state.news.add(from);
+      if (ev.type === "playtester_run" && ev.run) {
+        t.running = ev.run.status === "running" ? ev.run.id : null;
+        t.last = { id: ev.run.id, status: ev.run.status, goal: ev.run.goal };
+      } else if (ev.type === "playtester_step") {
+        t.running = t.running || ev.run_id;
+      }
+      renderTabs();
+    } else {
+      refreshStatus();  // a tester opened elsewhere
+    }
+    return false;
+  }
+
   function onStep(ev) {
+    if (!mine(ev)) return;
     if (ev.thumb) state.thumbs.set(`${ev.run_id}:${ev.step.n}`, ev.thumb);
     if (ev.run_id !== state.runId) {
       if (state.follow && ev.run_id !== "manual") loadRuns(ev.run_id).then(openRun);
@@ -820,6 +962,7 @@
   }
 
   function onRun(ev) {
+    if (!mine(ev)) return;
     const r = ev.run || {};
     if (r.id === state.runId) {
       state.run = { ...(state.run || {}), ...r };
@@ -840,7 +983,7 @@
   async function refetchRun() {
     const last = state.steps.length ? state.steps[state.steps.length - 1].n : 0;
     try {
-      const out = await rpc("get_run", { run_id: state.runId, from_step: last });
+      const out = await trpc("get_run", { run_id: state.runId, from_step: last });
       if (out && out.ok) {
         const { steps, ...meta } = out.run;
         state.run = { ...(state.run || {}), ...meta };
@@ -877,7 +1020,7 @@
 
   $("stopBtn").addEventListener("click", async () => {
     try {
-      const out = await rpc("stop", { run_id: running() ? state.runId : "" });
+      const out = await trpc("stop", { run_id: running() ? state.runId : "" });
       if (out && out.ok === false) showErr(out.error);
     } catch (err) {
       showErr(err.message);
@@ -893,13 +1036,41 @@
       const anchor = { left: r.left, top: r.top, width: r.width, height: r.height };
       const out = await call("ui.pickModel", { purpose: "video", current: j.pick || "playtester:auto", title: "Who answers Play Tester", extra: JEV_ROWS, anchor });
       if (!out || !out.model) return;
-      const st = await rpc("set_brain", { pick: out.model });
+      const st = await trpc("set_brain", { pick: out.model });
       if (st && st.ok === false && st.error) return showErr(st.error);
       state.status = st;
       paintReady(st);
     } catch (err) {
       showErr(err.message);
     }
+  });
+  $("tabs").addEventListener("click", (ev) => {
+    const x = ev.target.closest("[data-close]");
+    if (x) { ev.stopPropagation(); closeTester(x.dataset.close); return; }
+    const tab = ev.target.closest("[data-tester]");
+    if (tab && tab.dataset.tester !== state.tester) switchTester(tab.dataset.tester);
+  });
+  $("tabs").addEventListener("keydown", (ev) => {
+    if (ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
+    const ids = state.testers.map((t) => t.id);
+    const i = ids.indexOf(state.tester) + (ev.key === "ArrowRight" ? 1 : -1);
+    if (ids[i]) { ev.preventDefault(); switchTester(ids[i]).then(() => $("tabs").querySelector('[aria-selected="true"]')?.focus()); }
+  });
+  $("addTester").addEventListener("click", openNewMenu);
+  $("newMenu").addEventListener("click", (ev) => {
+    const opt = ev.target.closest(".pt-opt");
+    if (!opt) return;
+    if (opt.dataset.web) {
+      $("newWeb").classList.remove("pt-hidden");
+      $("newUrl").focus();
+      return;
+    }
+    openTester(opt.dataset.target, opt.dataset.label);
+  });
+  $("newWeb").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const url = $("newUrl").value.trim();
+    if (url) openTester(`web:${url}`, "");
   });
   $("follow").addEventListener("click", () => {
     setFollow(!state.follow);

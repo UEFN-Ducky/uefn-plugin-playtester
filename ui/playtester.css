@@ -35,6 +35,60 @@
 .pt-live[aria-pressed="true"] .pt-live__dot { background: var(--accent); }
 .pt-live__dot.is-rec { background: var(--red); }
 
+/* testers: one tab per game, like a browser's tabs */
+.pt-tabbar { display: flex; align-items: flex-end; gap: 4px; border-bottom: 1px solid var(--border); margin-top: -2px; }
+.pt-tabs { display: flex; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
+.pt-tab {
+  display: inline-flex; align-items: center; gap: 6px; flex: none; max-width: 220px; min-height: 0; height: 30px;
+  padding: 0 8px 0 10px; border: 1px solid transparent; border-bottom: 0; border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: none; color: var(--fg-dim); font: 12px var(--font-ui); cursor: pointer;
+}
+.pt-tab:hover { background: var(--tab-hover); color: var(--fg); }
+.pt-tab[aria-selected="true"] {
+  margin-bottom: -1px; border-color: var(--border); background: var(--card); color: var(--fg); font-weight: 600;
+}
+.pt-tab .ico { width: 13px; height: 13px; }
+.pt-tab__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pt-tab__dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--border-light); }
+.pt-tab__dot.is-run { background: var(--accent); animation: pt-blink 1.2s ease-in-out infinite; }
+.pt-tab__dot.is-wait { background: var(--amber); }
+.pt-tab__dot.is-good { background: var(--green); }
+.pt-tab__dot.is-bad { background: var(--red); }
+.pt-tab__dot.is-new { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
+.pt-tab__wait { color: var(--amber); font-size: 10px; font-weight: 600; }
+.pt-tab__x {
+  display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; min-height: 0; padding: 0;
+  border: 0; border-radius: 4px; background: none; color: var(--muted); visibility: hidden;
+}
+.pt-tab:hover .pt-tab__x, .pt-tab[aria-selected="true"] .pt-tab__x { visibility: visible; }
+.pt-tab__x:hover { background: var(--tab-hover); color: var(--fg); }
+.pt-tab__x .ico { width: 11px; height: 11px; }
+.pt-tab--add { width: 30px; padding: 0; justify-content: center; color: var(--muted); }
+@keyframes pt-blink { 50% { opacity: 0.35; } }
+
+/* New tester menu, under the + */
+.pt-newmenu { inset: auto; width: min(380px, calc(100vw - 24px)); max-width: none; max-height: min(560px, calc(100vh - 80px)); overflow: auto; margin: 0; }
+.pt-newmenu::backdrop { background: none; }
+.pt-newmenu .pt-pop__head b { flex: 1; }
+.pt-newmenu__how { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 2px 0 8px; color: var(--fg-dim); font-size: 12px; }
+.pt-newmenu__sec { margin: 10px 0 4px; color: var(--muted); font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+.pt-newmenu__list { display: flex; flex-direction: column; gap: 2px; }
+.pt-newmenu__web { display: flex; gap: 6px; margin-top: 6px; }
+.pt-newmenu__web .dk-input { flex: 1; min-width: 0; }
+.pt-opt {
+  display: grid; grid-template-columns: 48px minmax(0, 1fr); align-items: center; gap: 10px; min-height: 0;
+  padding: 6px 8px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--fg); text-align: left; cursor: pointer;
+}
+.pt-opt:hover, .pt-opt:focus-visible { background: var(--tab-hover); }
+.pt-opt__pic {
+  display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 30px; overflow: hidden;
+  border-radius: 4px; background: var(--bg-elevated); color: var(--fg-dim);
+}
+.pt-opt__pic img { width: 100%; height: 100%; object-fit: cover; }
+.pt-opt__text { display: flex; flex-direction: column; min-width: 0; }
+.pt-opt__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.pt-opt__sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; }
+
 /* readiness: in full only when something needs doing */
 .pt-ready { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .pt-check {

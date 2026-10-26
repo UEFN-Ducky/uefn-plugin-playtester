@@ -1,7 +1,9 @@
 """Plain-code moves from Jev's view of one frame: no language model in the loop.
 
 ``decide(view, memory, goal)`` returns the step's actions (turn, keys, click, wait), a
-reason a person can read, and ``finish`` when the run is over. ``memory`` carries the
+reason a person can read, and ``finish`` when the run is over. ``goal["view"]`` is the game's
+view from its profile: ``pointclick`` games are played by clicking what Jev boxes; every other
+view walks and turns (the controller turns that into the game's own keys). ``memory`` carries the
 few counters that span steps (stuck, scanning, success streak). Every number that
 shapes a move is in ``DEFAULTS`` so the tab can show why it moved.
 """
@@ -23,6 +25,7 @@ DEFAULTS: dict[str, float] = {
     "scan_turns": 6,       # 6 x 60 = a full look around
     "max_loading": 20,
     "max_uses": 4,
+    "max_clicks": 6,      # point and click: clicks without the success check passing
 }
 _WHERE_X = {"left": 0.2, "center": 0.5, "right": 0.8}
 
@@ -101,6 +104,9 @@ def decide(view: dict[str, Any], memory: dict[str, Any] | None, goal: dict[str, 
                 return out([], f"success check passed {m['done']} times ({done:.0%})", {"status": "success", "reason": f"Success check passed: {success}"}, rule="done")
             return out([{"wait": 0.3}], f"success check passed once ({done:.0%}): look again to be sure", rule="done-once")
         m["done"] = 0
+
+    if goal.get("view") == "pointclick":
+        return _click(view, m, goal, cfg, out)
 
     # 3. Stuck? Two walks in a row and the player did not move (the beacon's real
     # movement when it reports, else Jev comparing the last two frames).
@@ -190,6 +196,37 @@ def decide(view: dict[str, Any], memory: dict[str, Any] | None, goal: dict[str, 
         return out(acts, f"{target} is {place} and still far (size {h:.2f}): " + ", then ".join(said), aim=aim, rule="approach")
 
     return _at_target(view, m, goal, cfg, out, acts, aim, name)
+
+
+def _click(view: dict[str, Any], m: dict[str, Any], goal: dict[str, Any], cfg: dict[str, float], out: Any) -> dict[str, Any]:
+    """Point and click: click the middle of what Jev boxed, then give the game a moment to answer."""
+    target = str(goal.get("target") or "").strip()
+    success = str(goal.get("success") or "").strip()
+    name = target or "the next thing to click"
+    seen = view.get("seen")
+    box = view.get("box")
+    if int(m.get("settle") or 0) > 0:
+        m["settle"] = int(m["settle"]) - 1
+        return out([{"wait": 0.6}], f"clicked {name}: waiting for the game to answer", rule="settle")
+    if seen is None or seen < cfg["confidence"] or not box:
+        m["scan"] += 1
+        if m["scan"] > cfg["scan_turns"]:
+            return out([], f"{name} never showed up", {"status": "failed", "reason": f"Couldn't find {name} on screen."}, rule="click-missing")
+        return out([{"wait": 0.8}], f"{name} isn't on screen yet: wait ({m['scan']}/{cfg['scan_turns']:g})", rule="click-wait")
+    m["scan"] = 0
+    cx = round((box["left"] + box["right"]) / 2.0, 3)
+    cy = round((box["top"] + box["bottom"]) / 2.0, 3)
+    aim = {"cx": cx, "cy": cy, "size": round(box["bottom"] - box["top"], 3)}
+    m["uses"] += 1
+    m["last"] = "use"
+    acts = [{"click_at": [cx, cy], "click": "left"}]
+    why = f"{name} is at {cx:.0%} across, {cy:.0%} down: click it"
+    if target and not success:
+        return out(acts, why, {"status": "success", "reason": f"Clicked {target}."}, aim=aim, rule="click")
+    if success and m["uses"] > cfg["max_clicks"]:
+        return out([], why, {"status": "failed", "reason": f"Clicked {m['uses'] - 1} times but the success check never passed."}, aim=aim, rule="click")
+    m["settle"] = 1
+    return out(acts, why, aim=aim, rule="click")
 
 
 def _at_target(view: dict[str, Any], m: dict[str, Any], goal: dict[str, Any], cfg: dict[str, float], out: Any,

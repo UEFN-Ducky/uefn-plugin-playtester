@@ -20,6 +20,9 @@
       <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
       <symbol id="i-bot" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M12 8V4M9 13h.01M15 13h.01M9 17h6"/></symbol>
       <symbol id="i-code" viewBox="0 0 24 24"><path d="m8 7-5 5 5 5M16 7l5 5-5 5"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-window" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/></symbol>
+      <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></symbol>
     </defs>
   </svg>
 
@@ -35,6 +38,11 @@
       <select id="runPick" class="dk-select pt-runpick" aria-label="Run to show"></select>
       <button id="follow" type="button" class="dk-btn dk-btn--secondary pt-live" aria-pressed="true" title="Follow the newest step"><span class="pt-live__dot"></span>Live</button>
     </header>
+
+    <nav class="pt-tabbar" aria-label="Testers">
+      <div id="tabs" class="pt-tabs" role="tablist"></div>
+      <button id="addTester" type="button" class="pt-tab pt-tab--add" title="New tester: test another game" aria-label="New tester"><svg class="ico"><use href="#i-plus"/></svg></button>
+    </nav>
 
     <section id="ready" class="pt-ready pt-hidden" aria-label="What Play Tester needs"></section>
     <div id="err" class="dk-error pt-hidden" role="alert"></div>
@@ -73,7 +81,7 @@
     <main class="pt-main">
       <section class="dk-card pt-view" aria-label="What Jev sees">
         <div class="pt-frame">
-          <img id="frame" alt="Fortnite frame of the selected step">
+          <img id="frame" alt="The game's frame at the selected step">
           <div id="box" class="pt-box pt-hidden"><span id="boxLabel" class="pt-box__label"></span></div>
           <div class="pt-cross" aria-hidden="true"></div>
           <div id="turn" class="pt-turn pt-hidden" aria-hidden="true"><span></span></div>
@@ -147,9 +155,37 @@
   </div>
 
   <!-- What each "?" opens. Native popovers: click outside or Esc closes them. -->
-  <div id="help-fortnite" class="pt-pop" popover>
-    <div class="pt-pop__head"><b>Fortnite</b><button type="button" class="pt-pop__x" popovertarget="help-fortnite" popovertargetaction="hide" aria-label="Close"><svg class="ico"><use href="#i-x"/></svg></button></div>
-    <p>Play Tester plays the real Fortnite window that UEFN opens. In UEFN press <b>Launch Session</b> and wait for the island to load. This turns green by itself.</p>
+  <div id="help-game" class="pt-pop" popover>
+    <div class="pt-pop__head"><b>The game</b><button type="button" class="pt-pop__x" popovertarget="help-game" popovertargetaction="hide" aria-label="Close"><svg class="ico"><use href="#i-x"/></svg></button></div>
+    <p><b>Fortnite</b>: Play Tester plays the real Fortnite window that UEFN opens. In UEFN press <b>Launch Session</b> and wait for the island to load.</p>
+    <p><b>Other games</b>: start the game; Play Tester finds its window again by its program or title. A Godot game runs from the editor with the runtime probe, a web game in a Browser tab. This turns green by itself.</p>
+  </div>
+  <div id="help-tabs" class="pt-pop" popover>
+    <div class="pt-pop__head"><b>Testers</b><button type="button" class="pt-pop__x" popovertarget="help-tabs" popovertargetaction="hide" aria-label="Close"><svg class="ico"><use href="#i-x"/></svg></button></div>
+    <p>Each tab is one tester playing one game, with its own runs and its own Who answers. <b>+</b> opens another: Fortnite, Godot, Unreal, Roblox, a web page or any open window.</p>
+    <p>Testers run at the same time. Games in desktop windows share your keyboard and mouse, so they take turns pressing keys (a tab says <b>waiting</b> meanwhile). Godot and web testers never wait.</p>
+  </div>
+  <div id="newMenu" class="pt-pop pt-newmenu" popover>
+    <div class="pt-pop__head"><b>New tester</b><button type="button" class="pt-help" popovertarget="help-tabs" aria-label="About testers">?</button><button type="button" class="pt-pop__x" popovertarget="newMenu" popovertargetaction="hide" aria-label="Close"><svg class="ico"><use href="#i-x"/></svg></button></div>
+    <label class="pt-newmenu__how">How it is played
+      <select id="newProfile" class="dk-select">
+        <option value="">As the game says</option>
+        <option value="fps">First person 3D</option>
+        <option value="tps">Third person 3D</option>
+        <option value="roblox">Roblox camera (right drag)</option>
+        <option value="side2d">2D side view (platformer)</option>
+        <option value="topdown">Top down</option>
+        <option value="pointclick">Point and click</option>
+      </select>
+    </label>
+    <div class="pt-newmenu__sec">Games</div>
+    <div id="newPresets" class="pt-newmenu__list"></div>
+    <form id="newWeb" class="pt-newmenu__web pt-hidden">
+      <input id="newUrl" class="dk-input" type="text" placeholder="localhost:8060 or https://…" aria-label="Web game address">
+      <button type="submit" class="dk-btn dk-btn--primary">Open</button>
+    </form>
+    <div class="pt-newmenu__sec">Open windows</div>
+    <div id="newWindows" class="pt-newmenu__list"><div class="pt-note">Looking…</div></div>
   </div>
   <div id="help-jev" class="pt-pop" popover>
     <div class="pt-pop__head"><b>Jev</b><button type="button" class="pt-pop__x" popovertarget="help-jev" popovertargetaction="hide" aria-label="Close"><svg class="ico"><use href="#i-x"/></svg></button></div>
@@ -180,7 +216,7 @@
   <div id="help-position" class="pt-pop" popover>
     <div class="pt-pop__head"><b>Position</b><button type="button" class="pt-pop__x" popovertarget="help-position" popovertargetaction="hide" aria-label="Close"><svg class="ico"><use href="#i-x"/></svg></button></div>
     <p>Where the player and the target are in the world, from the beacon. The map is seen from above with the player in the middle facing up. The orange dot is the target and grey dots are landmarks.</p>
-    <p>x, y and z are in centimetres. No beacon means no positions: the <b>Beacon</b> help says how to add it.</p>
+    <p>x, y and z are in centimetres. No beacon means no positions: the <b>Beacon</b> help says how to add it. Other games steer by the picture; Godot testers report node positions to agents.</p>
   </div>
   <div id="help-pressing" class="pt-pop" popover>
     <div class="pt-pop__head"><b>Pressing</b><button type="button" class="pt-pop__x" popovertarget="help-pressing" popovertargetaction="hide" aria-label="Close"><svg class="ico"><use href="#i-x"/></svg></button></div>
