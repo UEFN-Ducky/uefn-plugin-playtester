@@ -4,8 +4,11 @@
 - ``ducky_ai``: the same Jev through Ducky AI (the site's Jev gateway), billed to the plan.
 - ``gateway``: any vision model on an installed gateway, asked for the answers as JSON.
   It has no Box, so finding things falls back to left / center / right.
-- ``auto`` (default): the TypeSafe key when saved, else Ducky AI when signed in, else the
-  gateway (Play Tester's own pick, or the app's default model).
+- ``auto`` (default): the TypeSafe key when saved, else Ducky AI with a Ducky AI plan, else
+  the gateway (Play Tester's own pick, or the app's default model).
+
+Ducky AI needs a plan (the site's brain-status says ``subscribed``): seeing it in the chat's
+model list is a permission, not a plan. Without one, a Ducky AI pick answers as Auto.
 
 ``Brain`` has the same calls as ``jev.JevClient`` (decide, box_ok, no_box, close), so the
 pilot and tools don't care which one answers.
@@ -31,18 +34,60 @@ DUCKY_AI_PROVIDER = "uefn_ducky"
 AUTO_PICK = "playtester:auto"
 # ponytail: a refused Ducky AI (no plan, used up, not set up) is skipped this long under Auto.
 REFUSED_S = 300.0
-NO_BRAIN = ("No brain for Play Tester: save a TypeSafe key (Settings → LLMs → TypeSafe), sign in to "
-            "Ducky AI, or pick a gateway model in Settings → Play Tester.")
+NO_BRAIN = ("No brain for Play Tester: save a TypeSafe key (Settings → LLMs → TypeSafe), get a "
+            "Ducky AI plan, or pick a gateway model in Play Tester's model menu.")
+BRAIN_STATUS = "/api/v1/plugins/uefn-ducky/collect/brain-status"
+# ponytail: the plan is asked once per account, then again in the background this often.
+PLAN_TTL_S = 300.0
+_plan_lock = threading.Lock()
+_plan: dict[str, Any] = {"who": "", "at": float("-inf"), "ok": False, "busy": False}
 
 
-def signed_in() -> bool:
-    """A Ducky account is signed in on this PC (Ducky AI may answer; the site decides)."""
+def _account() -> str:
     try:
         from frontend.duckyos_account import account_key
 
-        return bool(account_key())
+        return str(account_key() or "")
     except Exception:
+        return ""
+
+
+def _ask_plan(who: str, request: Callable[..., tuple[int, Any, str]] | None = None) -> None:
+    ok = False
+    try:
+        if request is None:
+            from frontend.duckyos_account import api_request as request
+        status, parsed, _raw = request("POST", BRAIN_STATUS, {}, timeout=8.0)
+        payload = parsed if isinstance(parsed, dict) else {}
+        payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else payload
+        ok = status == 200 and payload.get("subscribed") is True
+    except Exception:
+        ok = False
+    with _plan_lock:
+        if _plan["who"] == who:
+            _plan.update(at=time.monotonic(), ok=ok, busy=False)
+
+
+def has_plan(request: Callable[..., tuple[int, Any, str]] | None = None) -> bool:
+    """This PC's account has a Ducky AI plan now. The first ask per account waits for the site;
+    later ones answer at once and ask again in the background every PLAN_TTL_S."""
+    who = _account()
+    if not who:
         return False
+    with _plan_lock:
+        if _plan["who"] != who:
+            _plan.update(who=who, at=float("-inf"), ok=False, busy=False)
+        first = _plan["at"] == float("-inf")
+        ok = bool(_plan["ok"])
+        if _plan["busy"] or time.monotonic() - _plan["at"] < PLAN_TTL_S:
+            return ok
+        _plan["busy"] = True
+    if first:
+        _ask_plan(who, request)
+        with _plan_lock:
+            return bool(_plan["ok"])
+    threading.Thread(target=_ask_plan, args=(who, request), daemon=True, name="playtester-plan").start()
+    return ok
 
 
 def split_model(provider: str, model: str) -> tuple[str, str]:
@@ -103,9 +148,10 @@ def gateway_target(settings: dict[str, Any]) -> tuple[str, str]:
 
 def pick(choice: str, has_key: bool, ducky_ok: bool, has_gateway: bool, ducky_selected: bool = False) -> str:
     """The brain that answers now, or '' when none can. Pure. Auto follows Ducky AI first when
-    it is the app's model (Jev runs through Ducky AI then, even with a TypeSafe key saved)."""
+    it is the app's model (Jev runs through Ducky AI then, even with a TypeSafe key saved).
+    A Ducky AI pick without a plan (``ducky_ok`` false) answers as Auto."""
     choice = choice if choice in BRAINS else "auto"
-    if choice != "auto":
+    if choice != "auto" and not (choice == "ducky_ai" and not ducky_ok):
         return choice
     if ducky_selected and ducky_ok:
         return "ducky_ai"
@@ -118,7 +164,8 @@ def pick(choice: str, has_key: bool, ducky_ok: bool, has_gateway: bool, ducky_se
 
 def from_pick(pick: str) -> dict[str, str] | None:
     """The settings a model-picker pick stands for, or None when it is empty. Pure.
-    'playtester:auto' | 'typesafe:<jev>' | 'uefn_ducky:<jev>' (Jev through Ducky AI) | '<gateway>:<model>'."""
+    'playtester:auto' | 'typesafe:<jev>' | 'uefn_ducky:<model>' (Jev through Ducky AI: its chat
+    model can't draw boxes, so frames go to Jev) | '<gateway>:<model>'."""
     pick = str(pick or "").strip()
     if not pick:
         return None
@@ -130,8 +177,8 @@ def from_pick(pick: str) -> dict[str, str] | None:
         return None
     if provider == "typesafe":
         return {"brain": "typesafe", "model": model}
-    if provider == DUCKY_AI_PROVIDER and model.lower().startswith("jev"):
-        return {"brain": "ducky_ai", "model": model}
+    if provider == DUCKY_AI_PROVIDER:
+        return {"brain": "ducky_ai", "model": model if model.lower().startswith("jev") else jev.DEFAULT_MODEL}
     return {"brain": "gateway", "gateway": provider, "gateway_model": model}
 
 
@@ -146,6 +193,50 @@ def to_pick(settings: dict[str, Any]) -> str:
     if brain == "gateway" and settings.get("gateway") and settings.get("gateway_model"):
         return f"{settings['gateway']}:{settings['gateway_model']}"
     return AUTO_PICK
+
+
+def answering_pick(brain: str, model: str, gateway: tuple[str, str]) -> str:
+    """The picker id of whoever answers now (Auto worked out), '' for nobody. Pure."""
+    if brain == "typesafe":
+        return f"typesafe:{model}"
+    if brain == "ducky_ai":
+        return f"{DUCKY_AI_PROVIDER}:{model}"
+    if brain == "gateway" and gateway[0] and gateway[1]:
+        return f"{gateway[0]}:{gateway[1]}"
+    return ""
+
+
+def model_name(pick: str) -> str:
+    """'Jev 1.14.0' for a Jev pick, else the model id. Pure."""
+    model = str(pick or "").partition(":")[2]
+    return f"Jev {model[4:]}" if model.lower().startswith("jev-") else model
+
+
+# Gateways named the same everywhere in Play Tester; the rest take the app's name and logo.
+GATEWAY_NAMES = {"typesafe": "TypeSafe", DUCKY_AI_PROVIDER: "Ducky AI"}
+_faces: dict[str, tuple[float, str, str]] = {}
+
+
+def gateway_face(provider: str) -> tuple[str, str]:
+    """(name, logo data URL) of an installed gateway: the logo the chat's model button shows."""
+    provider = str(provider or "").strip().lower()
+    cached = _faces.get(provider)
+    if cached and (cached[2] or time.monotonic() - cached[0] < 60.0):
+        return cached[1], cached[2]
+    name, icon = GATEWAY_NAMES.get(provider, ""), ""
+    try:
+        from backend.uefn_plugins.host import get_contributions
+
+        for row in get_contributions().get("llm_providers") or []:
+            if str(row.get("id") or "").strip().lower() == provider:
+                name = name or str(row.get("label") or "")
+                icon = str(row.get("icon_data_url") or "")
+                break
+    except Exception:
+        pass
+    name = name or provider.replace("_", " ").title()
+    _faces[provider] = (time.monotonic(), name, icon)
+    return name, icon
 
 
 # --------------------------------------------------------------------------- Ducky AI
@@ -286,13 +377,13 @@ class Brain:
 
     def __init__(self, client: jev.JevClient | None = None, settings: Callable[[], dict[str, Any]] | None = None,
                  *, ducky: Callable[..., dict[str, Any]] | None = None, gateway: Callable[..., dict[str, Any]] | None = None,
-                 signed: Callable[[], bool] | None = None, key: Callable[[], str] | None = None,
+                 plan: Callable[[], bool] | None = None, key: Callable[[], str] | None = None,
                  model: Callable[[], tuple[str, str]] | None = None) -> None:
         self.client = client or jev.JevClient()
         self._settings = settings or (lambda: {})
         self._ducky = ducky or ducky_decide
         self._gateway = gateway or gateway_decide
-        self._signed = signed or signed_in
+        self._plan = plan or has_plan
         self._key = key or jev.api_key
         self._app_model = model or app_model
         self._refused_at = float("-inf")
@@ -313,10 +404,10 @@ class Brain:
         with self._lock:
             refused = time.monotonic() - self._refused_at < REFUSED_S
         target = gateway_target(s)
+        plan = self._plan()
         ducky_selected = self._app_model()[0] == DUCKY_AI_PROVIDER
-        brain = pick(choice, bool((self._key() or "").strip()), self._signed() and not refused, bool(target[0]),
-                     ducky_selected)
-        return {"brain": brain, "choice": choice if choice in BRAINS else "auto", "gateway": target}
+        brain = pick(choice, bool((self._key() or "").strip()), plan and not refused, bool(target[0]), ducky_selected)
+        return {"brain": brain, "choice": choice if choice in BRAINS else "auto", "gateway": target, "plan": plan}
 
     def ready(self) -> dict[str, Any]:
         c = self.choose()
@@ -324,8 +415,6 @@ class Brain:
             return {"ok": False, "error": jev.NO_KEY if c["brain"] == "typesafe" else NO_BRAIN, "needs_key": True, **c}
         if c["brain"] == "gateway" and not c["gateway"][0]:
             return {"ok": False, "error": NO_BRAIN, "needs_key": True, **c}
-        if c["brain"] == "ducky_ai" and not self._signed():
-            return {"ok": False, "error": "Sign in to your Ducky account to use Ducky AI for Play Tester.", "needs_key": True, **c}
         return {"ok": True, **c}
 
     def box_ok(self, model: str) -> bool:

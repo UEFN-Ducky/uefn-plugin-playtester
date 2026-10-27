@@ -27,9 +27,12 @@
 }
 .pt-brand__tile .ico { width: 16px; height: 16px; }
 .pt-title { margin: 0; font: 600 15px/1.2 var(--font-header); }
-.pt-pills { display: flex; gap: 6px; flex-wrap: wrap; }
 .pt-runpick { max-width: 300px; }
-.pt-brainpick { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* the model button: the gateway's logo, like the chat's model button */
+.pt-modelbtn { width: 30px; min-width: 30px; height: 30px; padding: 0; justify-content: center; }
+.pt-modelbtn__logo { display: block; width: 18px; height: 18px; object-fit: contain; border-radius: 4px; }
+.pt-modelbtn .ico { width: 16px; height: 16px; }
+.pt-modelbtn.is-bad { border-color: color-mix(in srgb, var(--red) 55%, var(--border)); color: var(--red); }
 .pt-live[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
 .pt-live__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
 .pt-live[aria-pressed="true"] .pt-live__dot { background: var(--accent); }
@@ -56,11 +59,11 @@
 .pt-tab__dot.is-bad { background: var(--red); }
 .pt-tab__dot.is-new { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
 .pt-tab__wait { color: var(--amber); font-size: 10px; font-weight: 600; }
+/* every tab but Fortnite's can close from where it is, picked or not */
 .pt-tab__x {
   display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; min-height: 0; padding: 0;
-  border: 0; border-radius: 4px; background: none; color: var(--muted); visibility: hidden;
+  border: 0; border-radius: 4px; background: none; color: var(--muted); cursor: pointer;
 }
-.pt-tab:hover .pt-tab__x, .pt-tab[aria-selected="true"] .pt-tab__x { visibility: visible; }
 .pt-tab__x:hover { background: var(--tab-hover); color: var(--fg); }
 .pt-tab__x .ico { width: 11px; height: 11px; }
 .pt-tab--add { width: 30px; padding: 0; justify-content: center; color: var(--muted); }
@@ -89,7 +92,7 @@
 .pt-opt__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .pt-opt__sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; }
 
-/* readiness: in full only when something needs doing */
+/* readiness: the same three cards on every tab (game, model, positions) */
 .pt-ready { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .pt-check {
   display: flex; align-items: center; gap: 10px; min-width: 0;
@@ -99,14 +102,17 @@
   display: inline-flex; align-items: center; justify-content: center; flex: none;
   width: 26px; height: 26px; border-radius: 50%; background: var(--bg-elevated); color: var(--fg-dim);
 }
+.pt-check__icon img { width: 16px; height: 16px; object-fit: contain; border-radius: 3px; }
 .pt-check__text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.pt-check__name, .pt-check__detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pt-check__name { font-weight: 600; }
 .pt-check__detail { color: var(--muted); font-size: 11px; }
 .pt-check.is-ok .pt-check__icon { background: var(--green-dim); color: var(--green); }
+.pt-check.is-info .pt-check__icon { background: var(--bg-elevated); color: var(--fg-dim); }
 .pt-check.is-warn .pt-check__icon { background: var(--amber-dim); color: var(--amber); }
 .pt-check.is-bad { border-color: color-mix(in srgb, var(--red) 55%, var(--border)); }
 .pt-check.is-bad .pt-check__icon { background: var(--red-dim); color: var(--red); }
-.pt-check.is-bad .pt-check__detail { color: var(--fg-dim); }
+.pt-check.is-bad .pt-check__detail { color: var(--fg-dim); white-space: normal; }
 
 /* the agent's brief: read only, people can stop the run */
 .pt-brief { display: flex; flex-direction: column; gap: 10px; }
@@ -233,7 +239,11 @@
   color: var(--muted); font: 600 11px/1 var(--font-ui);
 }
 .pt-help:hover { border-color: var(--accent); background: none; color: var(--accent); }
-.pt-pill { min-height: 0; cursor: pointer; }
+/* an action that failed: one line in words, closed with its x or by switching tabs */
+.pt-err { display: flex; align-items: center; gap: 8px; }
+.pt-err > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.pt-err__x { flex: none; width: 22px; min-width: 22px; height: 22px; min-height: 0; padding: 0; border: 0; background: none; color: inherit; opacity: 0.75; }
+.pt-err__x:hover { opacity: 1; background: none; }
 .pt-pop {
   box-sizing: border-box; max-width: min(340px, calc(100vw - 32px)); margin: auto; padding: 12px 14px;
   border: 1px solid var(--border-light); border-radius: var(--radius); background: var(--card); color: var(--fg);
@@ -318,6 +328,7 @@
 .pt-near:empty { display: none; }
 
 .pt-pad { display: flex; align-items: flex-start; gap: 14px; flex-wrap: wrap; }
+.pt-pad.is-off .pt-key, .pt-pad.is-off .pt-dial { cursor: not-allowed; opacity: 0.55; }
 .pt-keys { display: flex; flex-direction: column; gap: 4px; }
 .pt-keys__row { display: flex; gap: 4px; }
 .pt-key {

@@ -1,9 +1,9 @@
 {
   "id": "playtester",
   "kind": "plugin",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "label": "Play Tester",
-  "description": "Plays your games with Jev vision: Fortnite (with world coordinates from a Verse beacon), Godot, Unreal, Roblox, web games and any game window. Sees each frame, decides moves in about a second, and shows every key, mouse turn and Jev decision live, one tab per tester, several testers at once. Chat agents start play tests with one tool call. Jev answers with your TypeSafe key or through Ducky AI; a gateway vision model works too.",
+  "description": "Plays your games with Jev vision: Fortnite (with world coordinates from a Verse beacon), Godot, Unreal, Roblox, web games and any game window. Sees each frame, decides moves in about a second, and shows every key, mouse turn and Jev decision live, one tab per tester, several testers at once. Chat agents start play tests with one tool call. Jev answers with your TypeSafe key, or through Ducky AI with a Ducky AI plan; a gateway vision model works too.",
   "min_app_version": "1.2.431",
   "default_enabled": false,
   "data_sharing": false,
@@ -55,15 +55,15 @@
         "tab": "PlayTester",
         "id": "pilot",
         "title": "Jev pilot",
-        "description": "Play Tester asks Jev about every frame and moves the player from its answers. Jev runs on your TypeSafe key (Settings → LLMs) or through Ducky AI. These are every tester's defaults; a tester tab can pick its own Who answers.",
+        "description": "Play Tester asks Jev about every frame and moves the player from its answers. Jev runs on your TypeSafe key (Settings → LLMs), or through Ducky AI with a Ducky AI plan. These are every tester's defaults; each tester tab picks its own model with the logo button at its top.",
         "order": 10,
         "properties": [
           {
             "id": "brain",
             "type": "select",
             "default": "auto",
-            "label": "Who answers",
-            "description": "Auto: when Ducky AI is your model, Jev runs through Ducky AI; otherwise your TypeSafe key when one is saved, else Ducky AI when you are signed in, else the gateway model below (or your default model).",
+            "label": "Model that reads the frames",
+            "description": "Auto: your TypeSafe key when one is saved, else Jev through Ducky AI with a Ducky AI plan, else the gateway model below (or your default model). With a plan and Ducky AI as the chat's model, Jev runs through Ducky AI.",
             "options": [
               {
                 "value": "auto",
@@ -75,7 +75,7 @@
               },
               {
                 "value": "ducky_ai",
-                "label": "Jev through Ducky AI"
+                "label": "Jev through Ducky AI (needs a Ducky AI plan)"
               },
               {
                 "value": "gateway",

@@ -20,9 +20,20 @@ from .godot import GodotTarget
 from .window import RobloxTarget, UnrealTarget, WindowTarget
 
 KINDS = ("fortnite", "godot", "unreal", "roblox", "web", "window")
+# Programs that are a preset's game: their window opens that preset's tester, never a plain window one.
+PRESET_EXES = {"fortniteclient-win64-shipping.exe": "fortnite", "robloxplayerbeta.exe": "roblox"}
 
-__all__ = ["KINDS", "BrowserTarget", "FortniteTarget", "GodotTarget", "RobloxTarget", "UnrealTarget", "WindowTarget",
-           "make", "parse", "presets", "web_op"]
+__all__ = ["KINDS", "PRESET_EXES", "BrowserTarget", "FortniteTarget", "GodotTarget", "RobloxTarget", "UnrealTarget",
+           "WindowTarget", "for_window", "make", "parse", "presets", "web_op"]
+
+
+def for_window(row: dict[str, Any]) -> tuple[str, str]:
+    """(target, kind) for an open window: a preset when it is that game's program, else window:<exe>."""
+    exe = str(row.get("exe") or "").strip()
+    kind = PRESET_EXES.get(exe.lower())
+    if kind:
+        return kind, kind
+    return f"window:{exe or row.get('title') or ''}", "window"
 
 
 def parse(target: Any) -> dict[str, Any]:

@@ -99,6 +99,15 @@ def register(api: Any) -> None:
 
     def target_list(thumbnails: Any = False) -> dict[str, Any]:
         rows = windows.games(windows.list_windows())
+        open_now = mgr.list()
+        for row in rows:
+            # A preset game's window (the Fortnite client, Roblox) opens that preset, and a game that
+            # already has a tester goes to its tab instead of a second one.
+            row["target"], row["kind"] = targets.for_window(row)
+            exe = str(row.get("exe") or "").lower()
+            have = next((t for t in open_now if (row["kind"] != "window" and t.target.kind == row["kind"])
+                         or (row["kind"] == "window" and exe and str(getattr(t.target, "exe", "")).lower() == exe)), None)
+            row["tester"] = have.id if have else None
         if to_bool(thumbnails):
             for row in rows[:16]:
                 row["thumb"] = capture.thumbnail(int(row["hwnd"]))

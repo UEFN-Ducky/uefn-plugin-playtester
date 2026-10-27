@@ -31,7 +31,7 @@ def test_per_tester_calls_go_through_trpc(tmp_path):
 
 
 def test_every_help_popover_the_script_opens_exists():
-    for key in set(re.findall(r'\["(game|jev|beacon|tabs)"', JS)):
+    for key in set(re.findall(r'\["(game|jev|positions|tabs)"', JS)):
         assert f'id="help-{key}"' in HTML, key
     for el in ("tabs", "addTester", "newMenu", "newPresets", "newWindows", "newWeb", "newUrl", "newProfile"):
         assert f'id="{el}"' in HTML, el

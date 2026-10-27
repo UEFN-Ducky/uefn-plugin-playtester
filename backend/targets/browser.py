@@ -167,15 +167,18 @@ class BrowserTarget(WindowTarget):
         return self._size
 
     def status(self) -> dict[str, Any]:
+        again = "Close this tester and open it again."
         if not self.pane:
-            return {"ok": False, "error": f"{self.label} has no browser tab yet."}
+            return {"ok": False, "error": f"{self.label} has no browser tab yet.", "title": "No browser tab yet", "fix": again}
         try:
             alive = appcall.run("web_op", web_op, {"op": "alive", "pane": self.pane, "args": {}})
         except Exception as exc:
-            return {"ok": False, "error": f"Could not reach the Browser tab: {type(exc).__name__}"}
+            return {"ok": False, "error": f"Could not reach the Browser tab: {type(exc).__name__}",
+                    "title": "Can't reach the Browser tab", "fix": "Turn on the Web Browser plugin."}
         if not alive.get("ok") or not alive.get("alive"):
             self._first = None
-            return {"ok": False, "error": f"The browser tab for {self.label} is closed: close this tester and open it again."}
+            return {"ok": False, "error": f"The browser tab for {self.label} is closed: close this tester and open it again.",
+                    "title": "Its browser tab is closed", "fix": again}
         now = time.time()
         self._first = self._first or now
         return {"ok": True, "hwnd": 0, "title": self.label, "foreground": True, "gameplay_loaded": True,

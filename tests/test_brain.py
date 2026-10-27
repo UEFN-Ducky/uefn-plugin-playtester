@@ -14,7 +14,9 @@ def test_auto_order_is_key_then_ducky_ai_then_gateway():
     assert brains.pick("auto", False, True, True) == "ducky_ai"
     assert brains.pick("auto", False, False, True) == "gateway"
     assert brains.pick("auto", False, False, False) == ""
-    assert brains.pick("ducky_ai", True, False, False) == "ducky_ai", "an explicit pick is kept"
+    assert brains.pick("ducky_ai", True, True, False) == "ducky_ai", "an explicit pick is kept"
+    assert brains.pick("ducky_ai", True, False, False) == "typesafe", "no Ducky AI plan: answers as Auto"
+    assert brains.pick("gateway", True, False, True) == "gateway"
     assert brains.pick("nonsense", False, True, False) == "ducky_ai"
     assert brains.pick("auto", True, True, True, ducky_selected=True) == "ducky_ai", "Ducky AI picked: Jev goes through it"
     assert brains.pick("auto", True, False, True, ducky_selected=True) == "typesafe", "Ducky AI refused: own key"
@@ -48,7 +50,7 @@ def test_ducky_ai_as_the_app_model_beats_a_saved_key():
     assert b.ready()["brain"] == "typesafe"
 
 
-def _brain(key="", signed=True, ducky=None, gateway=None, settings=None):
+def _brain(key="", plan=True, ducky=None, gateway=None, settings=None):
     calls = []
 
     def fake_ducky(state, qs, images, model):
@@ -60,12 +62,12 @@ def _brain(key="", signed=True, ducky=None, gateway=None, settings=None):
         return gateway or {"ok": True, "answers": {}, "model": f"{provider}:{model}"}
 
     b = brains.Brain(jev.JevClient(key="unused"), lambda: settings or {"gateway": "openai", "gateway_model": "gpt-6-luna"},
-                     ducky=fake_ducky, gateway=fake_gateway, signed=lambda: signed, key=lambda: key,
+                     ducky=fake_ducky, gateway=fake_gateway, plan=lambda: plan, key=lambda: key,
                      model=lambda: ("", ""))
     return b, calls
 
 
-def test_no_key_signed_in_uses_ducky_ai_with_the_jev_model():
+def test_no_key_with_a_plan_uses_ducky_ai_with_the_jev_model():
     b, calls = _brain()
     assert b.ready()["brain"] == "ducky_ai"
     assert b.decide({"frame": "f"}, Q, {"f": b"jpg"}, "")["ok"]
@@ -84,7 +86,7 @@ def test_a_refused_ducky_ai_falls_to_the_gateway_and_stays_skipped():
 
 def test_nothing_to_answer_says_how_to_fix_it(monkeypatch):
     monkeypatch.setattr(brains, "gateway_target", lambda s: ("", ""))
-    b, _ = _brain(signed=False, settings={"brain": "auto"})
+    b, _ = _brain(plan=False, settings={"brain": "auto"})
     res = b.ready()
     assert not res["ok"] and res["needs_key"] and "Ducky AI" in res["error"]
 
@@ -107,8 +109,45 @@ def test_a_model_picker_pick_maps_to_the_brain_and_back():
     assert brains.from_pick("auto") == brains.from_pick("playtester:auto") == {"brain": "auto"}
     assert brains.from_pick("typesafe:jev-preview") == {"brain": "typesafe", "model": "jev-preview"}
     assert brains.from_pick("uefn_ducky:jev-1.14.0") == {"brain": "ducky_ai", "model": "jev-1.14.0"}
+    assert brains.from_pick("uefn_ducky:ducky-ai") == {"brain": "ducky_ai", "model": jev.DEFAULT_MODEL}, "frames go to Jev"
     assert brains.from_pick("openai:gpt-6-luna") == {"brain": "gateway", "gateway": "openai", "gateway_model": "gpt-6-luna"}
     assert brains.from_pick("") is None and brains.from_pick("openai:") is None
     for pick in ("playtester:auto", "typesafe:jev-preview", "uefn_ducky:jev-1.14.0", "openai:gpt-6-luna"):
         assert brains.to_pick(brains.from_pick(pick)) == pick
     assert brains.to_pick({"brain": "gateway"}) == "playtester:auto"  # no gateway model saved yet
+
+
+def test_who_answers_now_is_named_like_the_chat_model_button():
+    assert brains.answering_pick("typesafe", "jev-1.14.0", ("", "")) == "typesafe:jev-1.14.0"
+    assert brains.answering_pick("ducky_ai", "jev-preview", ("", "")) == "uefn_ducky:jev-preview"
+    assert brains.answering_pick("gateway", "jev-1.14.0", ("openai", "gpt-6-luna")) == "openai:gpt-6-luna"
+    assert brains.answering_pick("", "jev-1.14.0", ("", "")) == ""
+    assert brains.model_name("typesafe:jev-1.14.0") == "Jev 1.14.0"
+    assert brains.model_name("openai:gpt-6-luna") == "gpt-6-luna"
+    assert brains.gateway_face("typesafe")[0] == "TypeSafe" and brains.gateway_face("uefn_ducky")[0] == "Ducky AI"
+
+
+def test_a_ducky_ai_pick_without_a_plan_answers_with_the_key():
+    b, _ = _brain(key="k", plan=False, settings={"brain": "ducky_ai", "model": "jev-1.14.0"})
+    assert b.ready()["brain"] == "typesafe"
+    b, _ = _brain(key="k", plan=True, settings={"brain": "ducky_ai", "model": "jev-1.14.0"})
+    assert b.ready()["brain"] == "ducky_ai"
+
+
+def test_the_plan_is_the_sites_subscribed_flag(monkeypatch):
+    monkeypatch.setattr(brains, "_account", lambda: "acct-1")
+    brains._plan.update(who="", at=float("-inf"), ok=False, busy=False)
+    asked = []
+
+    def site(subscribed):
+        def request(method, path, body, timeout=0):
+            asked.append(path)
+            return 200, {"payload": {"ok": True, "subscribed": subscribed}}, ""
+        return request
+
+    assert brains.has_plan(site(False)) is False, "a permission without a plan is no plan"
+    assert brains.has_plan(site(True)) is False and len(asked) == 1, "asked once, then kept a while"
+    brains._plan.update(who="", at=float("-inf"))
+    assert brains.has_plan(site(True)) is True and asked == [brains.BRAIN_STATUS] * 2
+    monkeypatch.setattr(brains, "_account", lambda: "")
+    assert brains.has_plan(site(True)) is False, "signed out"

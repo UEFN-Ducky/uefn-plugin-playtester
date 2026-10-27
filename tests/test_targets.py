@@ -160,7 +160,30 @@ def test_godot_says_how_to_start_the_probe():
 
     st = targets.make({"kind": "godot"}, api=Down()).status()
     assert not st["ok"] and "install_runtime_probe" in st["error"]
+    assert st["title"] == "The Godot game isn't running" and "godot_call" not in st["fix"], "the tab gets plain words"
     assert godot.numbers({"x": 1, "y": 2}) == [1.0, 2.0] and godot.keycode("ARROWUP") == 4194320
+
+
+def test_a_godot_error_wrapped_in_json_reads_as_words():
+    nested = ('{"error": "{\\n  \\"ok\\": false,\\n  \\"state\\": \\"waiting_for_editor\\",\\n  '
+              '\\"error\\": \\"no Godot editor with the MCP addon is connected\\"\\n}"}')
+    assert godot.reason(nested) == ("no Godot editor with the MCP addon is connected", "waiting_for_editor")
+    out = godot.trouble(nested)
+    assert out["title"] == "The Godot editor isn't open" and "{" not in out["title"] + out["fix"]
+    assert "install_runtime_probe" in out["error"], "agents still get the steps"
+
+
+def test_a_missing_window_says_what_to_do_in_two_short_lines(monkeypatch):
+    monkeypatch.setattr(windows, "list_windows", lambda: [])
+    st = targets.make({"kind": "roblox"}).status()
+    assert st["title"] == "Roblox isn't open" and st["fix"] == "Start Roblox and join a game."
+    assert "RobloxPlayerBeta.exe" in st["error"]
+
+
+def test_a_preset_games_window_opens_that_preset():
+    assert targets.for_window({"exe": "FortniteClient-Win64-Shipping.exe"}) == ("fortnite", "fortnite")
+    assert targets.for_window({"exe": "RobloxPlayerBeta.exe"}) == ("roblox", "roblox")
+    assert targets.for_window({"exe": "MyGame.exe", "title": "My Game"}) == ("window:MyGame.exe", "window")
 
 
 # ---------------------------------------------------------------- browser

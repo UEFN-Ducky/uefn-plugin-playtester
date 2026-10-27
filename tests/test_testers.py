@@ -175,6 +175,17 @@ def test_targets_tool_lists_presets_and_windows(tmp_path):
     assert out["windows"][0]["exe"] == "PixelQuest.exe"
 
 
+def test_a_game_window_with_a_tester_points_at_its_tab(tmp_path, monkeypatch):
+    rows = [{"hwnd": 9, "title": "Fortnite", "exe": "FortniteClient-Win64-Shipping.exe", "width": 1920, "height": 1080},
+            {"hwnd": 8, "title": "Pixel Quest", "exe": "PixelQuest.exe", "width": 1280, "height": 720}]
+    monkeypatch.setattr(windows, "list_windows", lambda: rows)
+    api = registered(tmp_path)
+    tid = api.tools["playtester_open"](target="window:PixelQuest.exe")["tester"]["id"]
+    got = {w["exe"]: w for w in api.rpcs["targets"](thumbnails=False)["windows"]}
+    assert (got["FortniteClient-Win64-Shipping.exe"]["target"], got["FortniteClient-Win64-Shipping.exe"]["tester"]) == ("fortnite", "default")
+    assert got["PixelQuest.exe"]["tester"] == tid
+
+
 def test_web_op_only_drives_play_tester_tabs(tmp_path):
     api = registered(tmp_path)
     out = api.rpcs["web_op"](op="capture", pane="browser::gmail")

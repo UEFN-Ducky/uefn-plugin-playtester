@@ -47,7 +47,7 @@ first; it becomes a tab in Play Tester:
 
 Several testers run **at the same time**, one run each. Games in desktop windows share the one
 keyboard and mouse, so they take turns step by step (their tab says *waiting*); Godot and web
-testers never wait. Each tester has its own Who answers and mouse speed. World-coordinate steering
+testers never wait. Each tester has its own model (the logo button in its tab) and mouse speed. World-coordinate steering
 (beacon, `target_actor`, `success_print`, `playtester_map`) is Fortnite's; other games steer by the
 picture.
 

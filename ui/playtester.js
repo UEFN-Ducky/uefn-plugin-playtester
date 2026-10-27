@@ -38,12 +38,12 @@
     path: "Path", prompt: "Use prompt", done: "Success", next: "Jev's move", stairs_seen: "Way up/down",
   };
 
-  // Extra rows for Ducky's model picker: Jev judges frames, it can't chat.
-  const JEV_ROWS = [
-    { id: "playtester:auto", name: "Auto: the AI of the chat that starts the run", group: "Play Tester", vision: true },
-    ...["jev-1.14.0", "jev-preview", "jev-latest", "jev-1.13.0"].map((m) =>
-      ({ id: `typesafe:${m}`, name: `Jev ${m.replace(/^jev-/, "")}`, group: "TypeSafe", note: "Not for chat", vision: true })),
-    { id: "uefn_ducky:jev-1.14.0", name: "Jev 1.14.0 through Ducky AI", group: "Ducky AI", note: "Not for chat", vision: true },
+  // Ducky's model picker: Jev under TypeSafe, Jev under Ducky AI only with a Ducky AI plan, and
+  // the gateways' vision models. Ducky AI's chat model is left out: frames through Ducky AI go to Jev.
+  const JEV_MODELS = ["jev-1.14.0", "jev-preview", "jev-latest", "jev-1.13.0"];
+  const jevRows = (plan) => [
+    ...JEV_MODELS.map((m) => ({ id: `typesafe:${m}`, name: `Jev ${m.replace(/^jev-/, "")}`, group: "TypeSafe", note: "Not for chat", vision: true })),
+    ...(plan ? [{ id: "uefn_ducky:jev-1.14.0", name: "Jev 1.14.0", group: "Ducky AI", note: "Not for chat", vision: true }] : []),
   ];
 
   const $ = (id) => document.getElementById(id);
@@ -78,6 +78,7 @@
     tester: recall("pt.tester") || "default",
     testers: [],        // every open tester's summary (status.testers)
     news: new Set(),    // testers with steps since their tab was last shown
+    tabsHtml: "",       // the tab strip as last drawn
     visible: true,
     runId: "",          // run shown
     run: null,          // its doc without steps
@@ -173,13 +174,14 @@
         b.type = "button";
         b.className = "pt-key" + (k === "SPACE" ? " is-wide" : k.length > 1 ? " is-mid" : "");
         b.dataset.key = k;
-        b.title = `Press ${KEY_LABEL[k] || k} for 0.3 s`;
+        b.title = b.dataset.tip = `Press ${KEY_LABEL[k] || k} for 0.3 s`;
         b.innerHTML = `${esc(KEY_LABEL[k] || k)}<small></small>`;
         b.addEventListener("click", () => nudge({ keys: k }));
         line.appendChild(b);
       }
       wrap.appendChild(line);
     }
+    $("dial").dataset.tip = $("dial").title;
     $("dial").addEventListener("click", (ev) => {
       const r = ev.currentTarget.getBoundingClientRect();
       nudge({ look: ev.clientX < r.left + r.width / 2 ? -30 : 30 });
@@ -265,7 +267,7 @@
     const dot = $("mapTarget");
     const line = $("mapLine");
     const b = (state.status && state.status.beacon) || {};
-    $("beaconTag").textContent = b.none ? "no positions" : b.on ? "beacon on" : b.seen ? `beacon quiet ${Math.round(b.age_s || 0)} s` : "beacon off";
+    $("beaconTag").textContent = b.none ? "by the picture" : b.on ? "beacon on" : b.seen ? `beacon quiet ${Math.round(b.age_s || 0)} s` : "beacon off";
     if (!pose) {
       $("mapMarks").innerHTML = "";
       $("mapNear").textContent = "";
@@ -757,46 +759,56 @@
     select(last ? last.n : 0);
   }
 
-  function brainLabel(j) {
-    const pick = String(j.pick || "playtester:auto");
-    if (pick === "playtester:auto") return "Auto";
-    const row = JEV_ROWS.find((r) => r.id === pick);
-    return row ? (pick.startsWith("typesafe:") ? `${row.name} · TypeSafe` : row.name) : pick.slice(pick.indexOf(":") + 1);
-  }
-
   function gameName(st) {
     return (st && st.tester && st.tester.label) || (st && st.target && st.target.label) || "the game";
   }
 
-  // One short line per check; the "?" (or the pill) opens the explanation.
+  // The header's model button: the gateway's logo, like the model button in a chat.
+  function paintModel(j) {
+    const btn = $("brainPick");
+    const say = j.key ? `${j.name || "Jev"}${j.via ? ` · ${j.via}` : ""} reads the frames. Click to change.`
+      : "No model can read the frames. Click to pick one.";
+    btn.title = say;
+    btn.setAttribute("aria-label", say);
+    btn.classList.toggle("is-bad", !j.key);
+    const logo = $("brainLogo");
+    if (j.logo && logo.getAttribute("src") !== j.logo) logo.src = j.logo;
+    logo.classList.toggle("pt-hidden", !j.logo);
+    $("brainIcon").classList.toggle("pt-hidden", !!j.logo);
+  }
+
+  // The same three cards on every tab, each one short line and a "?" that explains it:
+  // the game, the model that reads the frames, and where the player's position comes from.
   function paintReady(st) {
-    const c = st.client || {}, j = st.jev || {}, b = st.beacon || {};
-    const model = String(j.model || "").replace(/^jev-/, "");
-    const fortnite = !st.target || st.target.kind === "fortnite";
-    const game = gameName(st);
+    const c = st.client || {}, j = st.jev || {}, b = st.beacon || {}, t = st.target || {};
+    const kind = t.kind || "fortnite";
+    const game = esc(gameName(st));
+    const logo = j.logo ? `<img alt="" src="${esc(j.logo)}">` : "";
     const checks = [
-      c.playing ? ["game", "is-ok", "i-check", fortnite ? "In the island" : `${esc(game)} is open`, ""]
-        : c.loading ? ["game", "is-warn", "i-dot", `${esc(game)} is loading`, fortnite ? "Wait for the island" : "Wait a moment"]
-        : ["game", "is-bad", "i-x", `${esc(game)} isn't open`, fortnite ? "Launch Session in UEFN" : esc(c.error || "Start the game")],
-      !j.key ? ["jev", "is-bad", "i-x", "No brain", "TypeSafe key, Ducky AI sign-in or a gateway model"]
-        : j.brain === "gateway" ? ["jev", "is-ok", "i-check", esc(j.gateway || "Gateway model"), "No box"]
-        : ["jev", "is-ok", "i-check", `Jev ${esc(model)}${j.brain === "ducky_ai" ? " · Ducky AI" : ""}`, j.box ? "" : "No box"],
-      b.none ? null
-        : b.on ? ["beacon", "is-ok", "i-check", "Beacon on", ""]
-        : b.seen ? ["beacon", "is-warn", "i-dot", "Beacon quiet", `No position for ${Math.round(b.age_s || 0)} s`]
-        : ["beacon", "is-warn", "i-dot", "Beacon off", "No world positions"],
-      st.waiting ? ["tabs", "is-warn", "i-dot", "Waiting for its turn", "Another tester is pressing keys"] : null,
-    ].filter(Boolean);
-    $("ready").style.setProperty("grid-template-columns", `repeat(${checks.length}, minmax(0, 1fr))`);
-    $("brainPick").textContent = `Who answers: ${brainLabel(j)}`;
-    const problem = !c.playing || !j.key;
-    $("ready").classList.toggle("pt-hidden", !problem);
-    $("ready").innerHTML = problem ? checks.map(([key, cls, ic, name, detail]) => `<div class="pt-check ${cls}"><span class="pt-check__icon">${icon(ic)}</span>
-      <span class="pt-check__text"><span class="pt-check__name">${name}</span>${detail ? `<span class="pt-check__detail">${detail}</span>` : ""}</span>
-      <button type="button" class="pt-help" popovertarget="help-${key}" aria-label="What is this?">?</button></div>`).join("") : "";
-    const tone = { "is-ok": "dk-badge--success", "is-bad": "dk-badge--danger", "is-warn": "dk-badge--warn" };
-    $("pills").innerHTML = problem ? "" : checks.map(([key, cls, , name]) =>
-      `<button type="button" class="dk-badge ${tone[cls]} pt-pill" popovertarget="help-${key}" title="What is this?">${name}</button>`).join("");
+      st.waiting && c.playing ? ["game", "is-warn", "i-dot", "Waiting for its turn", "Another tester is pressing keys"]
+        : c.playing ? ["game", "is-ok", "i-check", kind === "fortnite" ? "In the island" : `${game} is open`, kind === "fortnite" ? esc(st.island || "") : "Ready to play test"]
+        : c.loading ? ["game", "is-warn", "i-dot", `${game} is loading`, kind === "fortnite" ? "Wait for the island" : "Wait a moment"]
+        : ["game", "is-bad", "i-x", esc(plainErr(c.title) || `${gameName(st)} isn't open`), esc(plainErr(c.fix))],
+      !j.key ? ["jev", "is-bad", "i-x", "No model reads the frames", "Add a TypeSafe key in Settings → LLMs, or pick a model above"]
+        : ["jev", "is-ok", "i-check", esc(j.name || "Jev"), `${esc(j.via || "")}${j.box ? "" : `${j.via ? " · " : ""}no box`}`, logo],
+      kind === "fortnite"
+        ? (b.on ? ["positions", "is-ok", "i-pin", "Beacon on", "World positions"]
+          : b.seen ? ["positions", "is-warn", "i-pin", "Beacon quiet", `No position for ${Math.round(b.age_s || 0)} s`]
+          : ["positions", "is-warn", "i-pin", "Beacon off", "Steers by the picture"])
+        : t.positions ? ["positions", "is-ok", "i-pin", "Node positions", "From the player node"]
+        : ["positions", "is-info", "i-eye", "By the picture", "No world positions in this game"],
+    ];
+    $("ready").innerHTML = checks.map(([key, cls, ic, name, detail, pic]) => `<div class="pt-check ${cls}"><span class="pt-check__icon">${pic || icon(ic)}</span>
+      <span class="pt-check__text"><span class="pt-check__name" title="${name}">${name}</span>${detail ? `<span class="pt-check__detail" title="${detail}">${detail}</span>` : ""}</span>
+      <button type="button" class="pt-help" popovertarget="help-${key}" aria-label="What is this?">?</button></div>`).join("");
+    paintModel(j);
+    // Keys and the dial press into the game: only when it is open and no run is playing.
+    const off = !c.open || !!st.active_run;
+    $("keys").closest(".pt-pad").classList.toggle("is-off", off);
+    for (const b of document.querySelectorAll(".pt-key, #dial")) {
+      b.disabled = off;
+      b.title = off ? (c.open ? "A run is playing" : `Open ${gameName(st)} first`) : b.dataset.tip || "";
+    }
   }
 
   async function refreshStatus() {
@@ -825,10 +837,11 @@
     return ["success", "done"].includes(last) ? "is-good" : ["failed", "blocked", "timeout"].includes(last) ? "is-bad" : "";
   }
 
+  // Rebuilt only when a tab changed: a rebuild between mouse down and up would swallow a click on a tab or its x.
   function renderTabs() {
     const wrap = $("tabs");
     const rows = state.testers.length ? state.testers : [{ id: "default", label: "Fortnite", default: true, target: { kind: "fortnite" } }];
-    wrap.innerHTML = rows.map((t) => {
+    const html = rows.map((t) => {
       const on = t.id === state.tester;
       const kind = (t.target && t.target.kind) || "window";
       const fresh = state.news.has(t.id) && !on ? " is-new" : "";
@@ -837,9 +850,13 @@
         <span class="pt-tab__name">${esc(t.label)}</span>
         ${t.waiting ? `<span class="pt-tab__wait">waiting</span>` : ""}
         <span class="pt-tab__dot ${tabDot(t)}${fresh}"></span>
-        ${t.default ? "" : `<button type="button" class="pt-tab__x" data-close="${esc(t.id)}" aria-label="Close ${esc(t.label)}"><svg class="ico"><use href="#i-x"/></svg></button>`}
+        ${t.default ? "" : `<button type="button" class="pt-tab__x" data-close="${esc(t.id)}" aria-label="Close ${esc(t.label)}" title="Close ${esc(t.label)}"><svg class="ico"><use href="#i-x"/></svg></button>`}
       </div>`;
     }).join("");
+    if (html !== state.tabsHtml) {
+      state.tabsHtml = html;
+      wrap.innerHTML = html;
+    }
   }
 
   async function switchTester(id) {
@@ -848,6 +865,7 @@
     remember("pt.tester", id);
     state.news.delete(id);
     state.status = null;
+    showErr("");  // an error belongs to the tab it happened in
     setFollow(true);
     renderTabs();
     await refreshStatus();
@@ -890,10 +908,13 @@
       $("newPresets").innerHTML = (out.presets || []).filter((p) => !(p.kind === "fortnite" && taken.has("fortnite")))
         .map((p) => optRow(icon(KIND_ICON[p.kind] || "i-pad"), p.label, p.hint || "", { target: p.target, web: p.needs_url ? "1" : "" })).join("")
         || `<div class="pt-note">Every preset is open.</div>`;
+      // A game that already has a tab goes to that tab; the Fortnite client or Roblox opens as itself.
       const wins = out.windows || [];
+      const labelOf = (id) => ((state.testers.find((t) => t.id === id) || {}).label || "its tab");
       $("newWindows").innerHTML = wins.length
-        ? wins.map((w) => optRow(w.thumb ? `<img alt="" src="${w.thumb}">` : icon("i-window"), w.title, `${w.exe || ""} · ${w.width}×${w.height}`,
-          { target: `window:${w.exe || w.title}`, label: w.title })).join("")
+        ? wins.map((w) => optRow(w.thumb ? `<img alt="" src="${w.thumb}">` : icon(KIND_ICON[w.kind] || "i-window"), w.title,
+          w.tester ? `Open in ${labelOf(w.tester)}` : `${w.exe || ""} · ${w.width}×${w.height}`,
+          w.tester ? { tester: w.tester } : { target: w.target || `window:${w.exe || w.title}`, label: w.kind === "window" ? w.title : "" })).join("")
         : `<div class="pt-note">No game windows are open. Start the game, then press + again.</div>`;
     } catch (err) {
       $("newWindows").innerHTML = `<div class="pt-note">${esc(err.message)}</div>`;
@@ -912,10 +933,28 @@
     }
   }
 
+  // An error in words: a tool's JSON (even JSON inside JSON) gives its message, and sentences
+  // that tell agents which tool to call are left out.
+  function plainErr(msg) {
+    let text = String(msg || "").trim();
+    for (let i = 0; i < 4 && /^[[{]/.test(text); i++) {
+      try {
+        const d = JSON.parse(text);
+        const inner = d && typeof d === "object" ? d.error || d.message : "";
+        if (!inner) break;
+        text = String(inner).trim();
+      } catch (_) {
+        break;
+      }
+    }
+    const said = text.split(/(?<=[.!?])\s+/).filter((s) => !/\b[a-z]+_[a-z_]+\s*\(|\bplaytester_[a-z_]+\b/.test(s));
+    return (said.join(" ") || text).replace(/[:\s]+$/, "");
+  }
+
   function showErr(msg) {
-    const el = $("err");
-    el.textContent = msg || "";
-    el.classList.toggle("pt-hidden", !msg);
+    const text = plainErr(msg);
+    $("errText").textContent = text;
+    $("err").classList.toggle("pt-hidden", !text);
   }
 
   function setFollow(on) {
@@ -1028,13 +1067,14 @@
   });
 
   $("runPick").addEventListener("change", (ev) => { setFollow(false); openRun(ev.target.value); });
-  // Ducky's own model picker, plus the Jev rows.
+  // Ducky's own model picker, dropped down from the logo button like the chat's.
   $("brainPick").addEventListener("click", async () => {
     try {
       const j = (state.status && state.status.jev) || {};
       const r = $("brainPick").getBoundingClientRect();
       const anchor = { left: r.left, top: r.top, width: r.width, height: r.height };
-      const out = await call("ui.pickModel", { purpose: "video", current: j.pick || "playtester:auto", title: "Who answers Play Tester", extra: JEV_ROWS, anchor });
+      const out = await call("ui.pickModel", { purpose: "video", current: j.now || j.pick || "", title: "The model that reads the frames",
+                                               extra: jevRows(j.plan), hide: ["uefn_ducky"], anchor });
       if (!out || !out.model) return;
       const st = await trpc("set_brain", { pick: out.model });
       if (st && st.ok === false && st.error) return showErr(st.error);
@@ -1044,6 +1084,7 @@
       showErr(err.message);
     }
   });
+  $("errX").addEventListener("click", () => showErr(""));
   $("tabs").addEventListener("click", (ev) => {
     const x = ev.target.closest("[data-close]");
     if (x) { ev.stopPropagation(); closeTester(x.dataset.close); return; }
@@ -1060,6 +1101,11 @@
   $("newMenu").addEventListener("click", (ev) => {
     const opt = ev.target.closest(".pt-opt");
     if (!opt) return;
+    if (opt.dataset.tester) {
+      $("newMenu").hidePopover();
+      switchTester(opt.dataset.tester);
+      return;
+    }
     if (opt.dataset.web) {
       $("newWeb").classList.remove("pt-hidden");
       $("newUrl").focus();

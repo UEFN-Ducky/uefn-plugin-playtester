@@ -37,7 +37,15 @@ class FortniteTarget(WindowTarget):
 
     # The client is Ducky's own find: one Fortnite window, play mode, settled.
     def status(self) -> dict[str, Any]:
-        return screen.client()
+        st = screen.client()
+        if st.get("ok"):
+            return st
+        said = str(st.get("error") or "")
+        if said.startswith("No Fortnite client"):
+            return {**st, "title": "Fortnite isn't open", "fix": "Press Launch Session in UEFN and wait for the island."}
+        if said.startswith("More than one"):
+            return {**st, "title": "Two Fortnite windows are open", "fix": "Close the extra one."}
+        return st
 
     def ready(self, wait: bool = True) -> dict[str, Any]:
         return screen.ready(wait=wait)

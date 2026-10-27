@@ -1,6 +1,6 @@
 # Play Tester
 
-Plays your games with Jev vision: the live Fortnite client (with world coordinates from a Verse beacon), Godot games through the runtime probe, Unreal and Roblox windows, web games in a Browser tab and any game window. Sees each frame, decides moves in about a second, and shows every key, mouse turn and Jev decision live, one tab per tester; several testers play at once (desktop windows take turns with the keyboard, Godot and web never wait). Chat agents start play tests with one tool call. Uses the TypeSafe key from Settings → LLMs, Ducky AI, or a gateway vision model.
+Plays your games with Jev vision: the live Fortnite client (with world coordinates from a Verse beacon), Godot games through the runtime probe, Unreal and Roblox windows, web games in a Browser tab and any game window. Sees each frame, decides moves in about a second, and shows every key, mouse turn and Jev decision live, one tab per tester; several testers play at once (desktop windows take turns with the keyboard, Godot and web never wait). Chat agents start play tests with one tool call. Uses the TypeSafe key from Settings → LLMs, Ducky AI with a Ducky AI plan, or a gateway vision model.
 
 Code map: `backend/targets/` (what a tester plays), `profiles.py` (how a game is played), `tester.py` / `testers.py` (one tester, the open testers), `lease.py` (taking turns with the keyboard and mouse), `pilot.py` (the run loop), `ui/` (the tab).
 

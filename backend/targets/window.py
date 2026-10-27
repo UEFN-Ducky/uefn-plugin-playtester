@@ -42,6 +42,10 @@ class WindowTarget:
         parts = [f"program {self.exe}" if self.exe else "", f"title containing {self.title!r}" if self.title else ""]
         return " and ".join(p for p in parts if p) or "a window"
 
+    def how_to_start(self) -> str:
+        """What the person does when the game isn't open (one sentence for the tab)."""
+        return f"Start it: Play Tester finds the window by its {self.what()}."
+
     def info(self) -> dict[str, Any]:
         return {"kind": self.kind, "label": self.label, "exe": self.exe or None, "title": self.title or None,
                 "profile": self.profile.to_dict(), "needs_focus": self.needs_focus, "positions": self.beacon is not None}
@@ -65,13 +69,16 @@ class WindowTarget:
         return windows.find(self.exe, self.title)
 
     def status(self) -> dict[str, Any]:
-        """{ok, hwnd, title, foreground, gameplay_loaded, loaded_for_s} or {ok: False, error}."""
+        """{ok, hwnd, title, foreground, gameplay_loaded, loaded_for_s} or {ok: False, error, title, fix}:
+        error is the whole sentence for agents, title and fix the tab's two short lines."""
         try:
             rows = self.find()
         except Exception as exc:
-            return {"ok": False, "error": f"Could not list windows: {type(exc).__name__}"}
+            return {"ok": False, "error": f"Could not list windows: {type(exc).__name__}",
+                    "title": "Can't see the open windows", "fix": "Try again in a moment."}
         if not rows:
-            return {"ok": False, "error": f"{self.label} isn't open: start it (Play Tester looks for {self.what()})."}
+            return {"ok": False, "error": f"{self.label} isn't open: start it (Play Tester looks for {self.what()}).",
+                    "title": f"{self.label} isn't open", "fix": self.how_to_start()}
         row = rows[0]
         hwnd = int(row["hwnd"])
         now = time.time()
@@ -79,7 +86,8 @@ class WindowTarget:
         self._seen = {hwnd: first}
         if row.get("width", 0) < screen.MIN_SIDE or row.get("height", 0) < screen.MIN_SIDE:
             if not row.get("minimized"):
-                return {"ok": False, "error": f"The {self.label} window is too small to see: make it larger than 280 x 280."}
+                return {"ok": False, "error": f"The {self.label} window is too small to see: make it larger than 280 x 280.",
+                        "title": f"The {self.label} window is too small", "fix": "Make it bigger than 280 × 280."}
         return {"ok": True, "hwnd": hwnd, "title": row.get("title"), "foreground": bool(row.get("foreground")),
                 "gameplay_loaded": True, "minimized": bool(row.get("minimized")), "loaded_for_s": round(now - first, 1)}
 
@@ -135,6 +143,9 @@ class UnrealTarget(WindowTarget):
     def what(self) -> str:
         return super().what() if (self.exe or self.title) else "a packaged Unreal game or an editor play window"
 
+    def how_to_start(self) -> str:
+        return super().how_to_start() if (self.exe or self.title) else "Start the game, or press Play in the Unreal editor."
+
     def find(self) -> list[dict[str, Any]]:
         if self.exe or self.title:
             return super().find()
@@ -156,3 +167,6 @@ class RobloxTarget(WindowTarget):
 
     def default_label(self) -> str:
         return self.title or "Roblox"
+
+    def how_to_start(self) -> str:
+        return "Start Roblox and join a game."

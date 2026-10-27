@@ -9,6 +9,7 @@ side by side with others and never wait for the input lease. ``where`` reads nod
 from __future__ import annotations
 
 import io
+import json
 import os
 import re
 import threading
@@ -43,6 +44,39 @@ def numbers(value: Any) -> list[float]:
     if isinstance(value, (list, tuple)):
         return [float(v) for v in value if isinstance(v, (int, float))]
     return [float(n) for n in _NUM.findall(str(value or ""))]
+
+
+def reason(error: Any) -> tuple[str, str]:
+    """(message, state) from a probe error, which can be JSON inside JSON inside the text."""
+    text, state = str(error or "").strip(), ""
+    for _ in range(4):
+        try:
+            data = json.loads(text)
+        except ValueError:
+            break
+        if not isinstance(data, dict):
+            break
+        state = state or str(data.get("state") or "")
+        inner = data.get("error") or data.get("message")
+        if not inner:
+            break
+        text = str(inner).strip()
+    return text, state
+
+
+def trouble(error: Any) -> dict[str, Any]:
+    """A probe error as {title, fix} for the tab and a full sentence (plus how) for agents."""
+    text, state = reason(error)
+    low = f"{state} {text}".lower()
+    if "waiting_for_editor" in low or "no godot editor" in low:
+        title, fix = "The Godot editor isn't open", "Open your project in Godot with the MCP add-on, then press Run."
+    elif "update the app" in low:
+        title, fix = "UEFN Ducky needs an update", "Update UEFN Ducky to test Godot games."
+    elif "godot_call" in low and ("unknown" in low or "not found" in low or "no tool" in low):
+        title, fix = "The Godot plugin is off", "Turn on Godot in the Store."
+    else:
+        title, fix = "The Godot game isn't running", "Press Run in the Godot editor."
+    return {"ok": False, "error": f"{title}: {fix} {SETUP}", "title": title, "fix": fix, "detail": text[:160]}
 
 
 def _payload(out: Any) -> Any:
@@ -150,7 +184,7 @@ class GodotTarget(WindowTarget):
             info = _payload(self.call("get_runtime_info", {"timeout_ms": 1500}))
         except Exception as exc:
             self._first = None
-            return {"ok": False, "error": f"The Godot game isn't answering ({str(exc)[:120]}). {SETUP}"}
+            return trouble(exc)
         now = time.time()
         self._first = self._first or now
         scene = info.get("current_scene") if isinstance(info, dict) else None

@@ -186,6 +186,16 @@ class Tester:
         loading = bool(st.get("ok") and not playing)
         active = self.store.active()
         bcn = self.beacon_state()
+        # The tab's two short lines when the game isn't open: what is wrong, what to do.
+        said = str(st.get("error") or "")
+        title = str(st.get("title") or (said.split(":")[0] if 0 < said.find(":") < 60 else f"{self.label} isn't open"))
+        fix = str(st.get("fix") or (said.split(":", 1)[1].strip() if 0 < said.find(":") < 60 else said))
+        # Who answers frames now (Auto worked out), named and drawn like the chat's model button.
+        answering = str((active and getattr(self.brain, "last_brain", "")) or brain.get("brain") or "")
+        gw = brain.get("gateway")
+        gateway = tuple(gw) if isinstance(gw, (list, tuple)) and len(gw) == 2 else ("", "")
+        now = brains.answering_pick(answering, cfg["model"], gateway) if key else ""
+        via, logo = brains.gateway_face(now.partition(":")[0]) if now else ("", "")
         if not key:
             nxt = str(brain.get("error") or jev.NO_KEY)
         elif not st.get("ok"):
@@ -209,12 +219,15 @@ class Tester:
             "ready": bool(key and playing and not active),
             "client": {"open": bool(st.get("ok")), "playing": playing, "loading": loading,
                        "foreground": bool(st.get("foreground")), "loaded_for_s": age,
-                       "error": None if st.get("ok") else st.get("error")},
+                       "error": None if st.get("ok") else st.get("error"),
+                       "title": None if st.get("ok") else title, "fix": None if st.get("ok") else fix},
             "jev": {"key": key, "own_key": bool(jev.api_key()),
-                    "brain": (active and getattr(self.brain, "last_brain", "")) or brain.get("brain") or None,
+                    "brain": answering or None,
                     "choice": brain.get("choice"), "pick": brains.to_pick(self.settings()), "model": cfg["model"],
                     "box": self.brain.box_ok(cfg["model"]),
-                    "gateway": ":".join(brain["gateway"]) if brain.get("brain") == "gateway" else None},
+                    "gateway": ":".join(brain["gateway"]) if brain.get("brain") == "gateway" else None,
+                    "now": now, "name": brains.model_name(now), "via": via, "logo": logo,
+                    "plan": bool(brain.get("plan")), "error": None if key else brain.get("error")},
             "beacon": bcn or {"seen": False, "on": False, "none": True},
             "waiting": bool(self.lease.waiting(self.id)),
             "settings": {k: cfg[k] for k in ("counts", "max_steps", "confidence", "size", "click_focus", "smooth")},
