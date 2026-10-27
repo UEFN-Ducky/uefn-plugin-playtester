@@ -856,7 +856,48 @@
     if (html !== state.tabsHtml) {
       state.tabsHtml = html;
       wrap.innerHTML = html;
+      const on = wrap.querySelector('[aria-selected="true"]');
+      if (on) on.scrollIntoView({ block: "nearest", inline: "nearest" });
+      paintTabsThumb();
     }
+  }
+
+  // The strip's own scrollbar: a thin thumb over its bottom edge (CSS shows it while hovered).
+  function paintTabsThumb() {
+    const bar = $("tabs"), track = $("tabsTrack"), thumb = $("tabsThumb");
+    const over = bar.scrollWidth > bar.clientWidth + 1;
+    track.classList.toggle("is-on", over);
+    if (!over) return;
+    const width = Math.max(24, (bar.clientWidth / bar.scrollWidth) * bar.clientWidth);
+    const left = (bar.scrollLeft / (bar.scrollWidth - bar.clientWidth)) * (bar.clientWidth - width);
+    thumb.style.width = `${width}px`;
+    thumb.style.transform = `translateX(${left}px)`;
+  }
+
+  function wireTabsScroll() {
+    const bar = $("tabs"), thumb = $("tabsThumb");
+    bar.addEventListener("scroll", paintTabsThumb, { passive: true });
+    new ResizeObserver(paintTabsThumb).observe(bar);
+    bar.addEventListener("wheel", (ev) => {
+      if (ev.ctrlKey || bar.scrollWidth <= bar.clientWidth + 1) return;
+      ev.preventDefault();
+      bar.scrollLeft += Math.abs(ev.deltaX) > Math.abs(ev.deltaY) ? ev.deltaX : ev.deltaY;
+    }, { passive: false });
+    let drag = null;
+    thumb.addEventListener("pointerdown", (ev) => {
+      ev.preventDefault();
+      drag = { x: ev.clientX, left: bar.scrollLeft };
+      thumb.setPointerCapture(ev.pointerId);
+      thumb.classList.add("is-drag");
+    });
+    thumb.addEventListener("pointermove", (ev) => {
+      if (!drag) return;
+      const room = bar.clientWidth - thumb.offsetWidth;
+      bar.scrollLeft = drag.left + (ev.clientX - drag.x) * ((bar.scrollWidth - bar.clientWidth) / Math.max(1, room));
+    });
+    const end = () => { drag = null; thumb.classList.remove("is-drag"); };
+    thumb.addEventListener("pointerup", end);
+    thumb.addEventListener("pointercancel", end);
   }
 
   async function switchTester(id) {
@@ -1148,6 +1189,7 @@
 
   async function boot() {
     buildKeys();
+    wireTabsScroll();
     showPressing(null);
     showAnswers(null);
     try {

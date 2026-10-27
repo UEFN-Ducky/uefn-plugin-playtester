@@ -38,35 +38,52 @@
 .pt-live[aria-pressed="true"] .pt-live__dot { background: var(--accent); }
 .pt-live__dot.is-rec { background: var(--red); }
 
-/* testers: one tab per game, like a browser's tabs */
+/* testers: one tab per game, like a browser's tabs. They shrink to fit like Chrome's, the + sits
+   right after the last one, and when even the narrowest tabs don't fit the strip scrolls (wheel or
+   a thin thumb drawn over its bottom edge, shown only while the pointer is on the strip). */
 .pt-tabbar { display: flex; align-items: flex-end; gap: 4px; border-bottom: 1px solid var(--border); margin-top: -2px; }
-.pt-tabs { display: flex; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
+.pt-tabs-wrap { position: relative; flex: 0 1 auto; min-width: 0; margin-bottom: -1px; }
+.pt-tabs { display: flex; gap: 2px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.pt-tabs::-webkit-scrollbar { display: none; height: 0; }
+.pt-tabs__track {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 3px; z-index: 2;
+  opacity: 0; pointer-events: none; transition: opacity 0.15s ease;
+}
+.pt-tabbar:hover .pt-tabs__track.is-on { opacity: 1; pointer-events: auto; }
+.pt-tabs__thumb {
+  position: absolute; top: 0; left: 0; height: 100%; min-width: 24px; border-radius: 3px;
+  background: var(--border-light); cursor: default; transition: background 0.15s ease;
+}
+.pt-tabs__thumb:hover, .pt-tabs__thumb.is-drag { background: var(--muted); }
 .pt-tab {
-  display: inline-flex; align-items: center; gap: 6px; flex: none; max-width: 220px; min-height: 0; height: 30px;
-  padding: 0 8px 0 10px; border: 1px solid transparent; border-bottom: 0; border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-  background: none; color: var(--fg-dim); font: 12px var(--font-ui); cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px; flex: 0 1 200px; min-width: 92px; max-width: 220px; min-height: 0; height: 30px;
+  padding: 0 6px 0 10px; border: 1px solid transparent; border-bottom: 0; border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: none; color: var(--fg-dim); font: 12px var(--font-ui); cursor: pointer; box-sizing: border-box;
+  container-type: inline-size;
+}
+/* a squeezed tab keeps room for its name: like Chrome, its x shows on hover or when picked */
+@container (max-width: 130px) {
+  .pt-tab:not([aria-selected="true"]):not(:hover) .pt-tab__x { display: none; }
 }
 .pt-tab:hover { background: var(--tab-hover); color: var(--fg); }
-.pt-tab[aria-selected="true"] {
-  margin-bottom: -1px; border-color: var(--border); background: var(--card); color: var(--fg); font-weight: 600;
-}
-.pt-tab .ico { width: 13px; height: 13px; }
-.pt-tab__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pt-tab[aria-selected="true"] { border-color: var(--border); background: var(--card); color: var(--fg); font-weight: 600; }
+.pt-tab .ico { width: 13px; height: 13px; flex: none; }
+.pt-tab__name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pt-tab__dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--border-light); }
 .pt-tab__dot.is-run { background: var(--accent); animation: pt-blink 1.2s ease-in-out infinite; }
 .pt-tab__dot.is-wait { background: var(--amber); }
 .pt-tab__dot.is-good { background: var(--green); }
 .pt-tab__dot.is-bad { background: var(--red); }
 .pt-tab__dot.is-new { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
-.pt-tab__wait { color: var(--amber); font-size: 10px; font-weight: 600; }
+.pt-tab__wait { flex: none; color: var(--amber); font-size: 10px; font-weight: 600; }
 /* every tab but Fortnite's can close from where it is, picked or not */
 .pt-tab__x {
-  display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; min-height: 0; padding: 0;
+  display: inline-flex; flex: none; align-items: center; justify-content: center; width: 18px; height: 18px; min-height: 0; padding: 0;
   border: 0; border-radius: 4px; background: none; color: var(--muted); cursor: pointer;
 }
 .pt-tab__x:hover { background: var(--tab-hover); color: var(--fg); }
 .pt-tab__x .ico { width: 11px; height: 11px; }
-.pt-tab--add { width: 30px; padding: 0; justify-content: center; color: var(--muted); }
+.pt-tab--add { flex: none; width: 30px; min-width: 30px; padding: 0; justify-content: center; color: var(--muted); }
 @keyframes pt-blink { 50% { opacity: 0.35; } }
 
 /* New tester menu, under the + */

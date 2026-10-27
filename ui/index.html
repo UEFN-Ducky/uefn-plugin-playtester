@@ -42,7 +42,10 @@
     </header>
 
     <nav class="pt-tabbar" aria-label="Testers">
-      <div id="tabs" class="pt-tabs" role="tablist"></div>
+      <div class="pt-tabs-wrap">
+        <div id="tabs" class="pt-tabs" role="tablist"></div>
+        <div id="tabsTrack" class="pt-tabs__track" aria-hidden="true"><div id="tabsThumb" class="pt-tabs__thumb"></div></div>
+      </div>
       <button id="addTester" type="button" class="pt-tab pt-tab--add" title="New tester: test another game" aria-label="New tester"><svg class="ico"><use href="#i-plus"/></svg></button>
     </nav>
 
