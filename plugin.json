@@ -1,7 +1,7 @@
 {
   "id": "playtester",
   "kind": "plugin",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "label": "Play Tester",
   "description": "Plays your games with Jev vision: Fortnite (with world coordinates from a Verse beacon), Godot, Unreal, Roblox, web games and any game window. Sees each frame, decides moves in about a second, and shows every key, mouse turn and Jev decision live, one tab per tester, several testers at once. Chat agents start play tests with one tool call. Jev answers with your TypeSafe key, or through Ducky AI with a Ducky AI plan; a gateway vision model works too.",
   "min_app_version": "1.2.431",
