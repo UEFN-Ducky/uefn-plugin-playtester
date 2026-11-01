@@ -156,6 +156,15 @@ still can't, the run stops with "click the game window once": ask the person to 
 - `playtester_calibrate(turn_degrees=20)`: measure the mouse speed once if turns overshoot or fall short.
 - `playtester_get_run`, `playtester_list_runs`: what happened, step by step.
 
+## UI check (does the HUD look designed?)
+
+When a test covers a HUD, menu or shop, ask Jev about it in one `playtester_check` with the
+screen open, using the slop signs from `skill_read_subskill("verse", "ui_design")` as
+yes/no questions: "Is all HUD text readable against the scene behind it?",
+"Is anything pulsing or glowing that is not time-critical?", "Are there emoji, `!!` or
+placeholder text?", "Is the center of the screen clear?", "Do the list rows have equal
+height?". Report each `no` with the frame, as a UI fix for the screen's owner.
+
 ## Rules
 
 - One run at a time per tester; testers run side by side. Never press keys on a tester while its
