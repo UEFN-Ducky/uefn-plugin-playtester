@@ -7,6 +7,7 @@ which the beacon's log reader already collects. Commands: ping, players, telepor
 
 from __future__ import annotations
 
+import json
 import re
 import threading
 import time
@@ -53,7 +54,7 @@ def send(call_tool: Callable[[str, dict[str, Any]], Any], prints_since: Callable
     try:
         out = call_tool("unreal__call_tool", {"toolset_name": ENTITY_TOOLSET, "tool_name": "SetComponentProperty",
                                               "arguments": {"component": {"refPath": component},
-                                                            "propertyName": PROPERTY, "value": text}})
+                                                            "propertyName": PROPERTY, "value": json.dumps(text)}})
     except Exception as exc:
         return {"ok": False, "error": f"Could not write the inbox through Epic MCP: {exc}"}
     if isinstance(out, dict) and out.get("ok") is False:

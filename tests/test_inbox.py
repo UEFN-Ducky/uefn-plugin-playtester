@@ -16,7 +16,7 @@ class FakeSession:
     def call_tool(self, name, args):
         assert name == "unreal__call_tool"
         assert args["toolset_name"] == inbox.ENTITY_TOOLSET and args["tool_name"] == "SetComponentProperty"
-        text = args["arguments"]["value"]
+        text = json.loads(args["arguments"]["value"])  # Epic wants the value JSON-encoded
         self.writes.append(text)
         if self.answer:
             for line in text.split(";"):
