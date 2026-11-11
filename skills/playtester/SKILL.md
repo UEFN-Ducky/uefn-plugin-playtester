@@ -112,6 +112,22 @@ Play Tester reads the island's Verse `Print` lines from the UEFN Output Log whil
 When you write Verse for the person's island, add a `Print("[PTEVENT] …")` where the thing to test
 happens, then test with `success_print`.
 
+## Commands into the session: data, not keys
+
+`playtester_command(commands)` runs commands inside the live session in about 0.1 s each, with exact
+answers. Use it to set up a test (teleport to the start, set health) and to read state, and keep
+`playtester_run` for what has to be played.
+
+- `ping`, `players` (`index,x,y,z,health` each), `teleport <player> <x> <y> <z> [yaw]`,
+  `health <player> [value]`, `mark <text>` (prints `[PTEVENT] <text>`). Use `;` between commands.
+- Setup, once per island: the beacon file (`playtester_beacon(add=true)`) also holds
+  `playtester_inbox_component`. Build Verse, put that component on an entity (EntityToolset
+  `CreateEntity` + `AddComponent`), and start a session. Pass `component=<its path>` once; it is remembered.
+- How it works: Epic `SetComponentProperty` writes the component's `Inbox` string, live edit carries
+  it into the session, and Verse prints `[PTREPLY] <seq> ok|fail <text>`. Editor sessions only: a
+  published island never changes `Inbox`. Components added during a session reach it only after
+  a new session.
+
 ## The island's layout
 
 `playtester_map()` reads every device's label and position from UEFN once and keeps it (refresh=true

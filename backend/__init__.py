@@ -263,6 +263,27 @@ def register(api: Any) -> None:
         """Check the Play Tester beacon device that reports the Fortnite player's world position; add=true puts its Verse file in the project."""
         return beacon_tool(add)
 
+    @api.tool(intent=INTENT, listener=True)
+    def playtester_command(commands: str = "", component: str = "", timeout_s: float = 5) -> dict:
+        """Run commands inside the running Fortnite session in about 0.1 s each, no keys or pictures.
+
+        commands, ';' between them: ping | players (index,x,y,z,health each) | teleport <player> <x> <y> <z> [yaw] |
+        health <player> [value] | mark <text> (prints [PTEVENT] <text>, a marker success_print can wait on).
+        component: the playtester_inbox_component's path (EntityToolset FindEntities on the entity holding it);
+        remembered after the first call. Needs the beacon file built, that component on an entity, and a session.
+        """
+        from . import inbox
+
+        comp = str(component or "").strip() or str(_settings().get("inbox_component") or "")
+        fortnite = mgr.get(DEFAULT)
+        bcn = getattr(getattr(fortnite, "target", None), "beacon", None)
+        if bcn is None:
+            return {"ok": False, "error": "The Fortnite tester has no beacon reader: open the fortnite tester first."}
+        out = inbox.send(api.call_tool, bcn.prints_since, commands, comp, timeout_s)
+        if component and out.get("replies"):
+            _save_setting("inbox_component", comp)
+        return out
+
     @api.tool(intent=INTENT, listener=False)
     def playtester_wait(run_id: str = "", timeout_s: float = 20, tester: str = "") -> dict:
         """Wait (max 25 s) for a play test run to finish and return its result, steps and last frame."""
