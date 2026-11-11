@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from uefn_plugin_playtester import beacon, inbox
 
 
