@@ -269,19 +269,24 @@ def register(api: Any) -> None:
 
         commands, ';' between them: ping | players (index,x,y,z,health each) | teleport <player> <x> <y> <z> [yaw] |
         health <player> [value] | mark <text> (prints [PTEVENT] <text>, a marker success_print can wait on).
-        component: the playtester_inbox_component's path (EntityToolset FindEntities on the entity holding it);
-        remembered after the first call. Needs the beacon file built, that component on an entity, and a session.
+        component: the playtester_inbox_component's path; empty finds it on the entity named PlayTesterInbox.
+        Needs the beacon file built, that entity in the level, and a session running.
         """
         from . import inbox
 
         comp = str(component or "").strip() or str(_settings().get("inbox_component") or "")
-        fortnite = mgr.get(DEFAULT)
-        bcn = getattr(getattr(fortnite, "target", None), "beacon", None)
-        if bcn is None:
-            return {"ok": False, "error": "The Fortnite tester has no beacon reader: open the fortnite tester first."}
-        out = inbox.send(api.call_tool, bcn.prints_since, commands, comp, timeout_s)
-        if component and out.get("replies"):
-            _save_setting("inbox_component", comp)
+        if not comp:
+            try:
+                comp = inbox.find_component(api.call_tool)
+            except Exception as exc:
+                return {"ok": False, "error": f"Could not look for the inbox through Epic MCP: {exc}"}
+            if not comp:
+                return {"ok": False, "error": "No PlayTesterInbox entity with playtester_inbox_component in the level: "
+                                              "build the beacon file, then EntityToolset CreateEntity(name=PlayTesterInbox) "
+                                              "+ AddComponent and save the level."}
+        out = inbox.send(api.call_tool, commands, comp, timeout_s)
+        if any(r.get("ok") for r in out.get("replies") or []):
+            _save_setting("inbox_component", comp)  # a path that answered once
         return out
 
     @api.tool(intent=INTENT, listener=False)

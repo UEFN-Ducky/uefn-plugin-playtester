@@ -121,10 +121,12 @@ answers. Use it to set up a test (teleport to the start, set health) and to read
 - `ping`, `players` (`index,x,y,z,health` each), `teleport <player> <x> <y> <z> [yaw]`,
   `health <player> [value]`, `mark <text>` (prints `[PTEVENT] <text>`). Use `;` between commands.
 - Setup, once per island: the beacon file (`playtester_beacon(add=true)`) also holds
-  `playtester_inbox_component`. Build Verse, put that component on an entity (EntityToolset
-  `CreateEntity` + `AddComponent`), and start a session. Pass `component=<its path>` once; it is remembered.
-- How it works: Epic `SetComponentProperty` writes the component's `Inbox` string, live edit carries
-  it into the session, and Verse prints `[PTREPLY] <seq> ok|fail <text>`. Editor sessions only: a
+  `playtester_inbox_component`. Build Verse, create an entity named `PlayTesterInbox` (EntityToolset
+  `CreateEntity`, class `/EntityFramework/_Verse/VNI/Entity.entity`) + `AddComponent`, **save the level**, and
+  start a session. The tool finds the component by that entity name (or pass `component=<path>`).
+- How it works: Epic `SetComponentProperty` writes the component's `Inbox` string (the value is
+  JSON-encoded), live edit carries it into the session, Verse prints `[PTREPLY] <seq> ok|fail <text>`, and
+  the tool reads it back with SessionToolset `GetVerseOutput(pattern=…)`. Verified live on 43.00 in about 0.1 s. Editor sessions only: a
   published island never changes `Inbox`. Components added during a session reach it only after
   a new session.
 
