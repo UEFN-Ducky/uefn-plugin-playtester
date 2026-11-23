@@ -90,6 +90,10 @@ def hung(hwnd: int) -> bool:
 
 def window_image(hwnd: int, timeout_s: float = 2.0, *, grab: Any = None) -> Any:
     """The window's client area as a PIL image, or None (hung, timed out, black, not Windows)."""
+    if grab is None and sys.platform.startswith("linux"):
+        from . import x11
+
+        grab = x11.window_image
     if sys.platform != "win32" and grab is None:
         return None
     if grab is None and hung(hwnd):

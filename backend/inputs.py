@@ -13,6 +13,7 @@ which way W walks (side and top-down views).
 
 from __future__ import annotations
 
+import sys
 import threading
 import time
 from typing import Any, Callable
@@ -142,6 +143,10 @@ class Controller:
                  keymap: dict[str, str] | None = None, look_mode: str = "mouse", view: str = "tps3d",
                  box: Callable[[], tuple[int, int, int, int]] | None = None) -> None:
         self.hwnd = int(hwnd)
+        if sender is None and sys.platform.startswith("linux"):
+            from .x11 import XSender
+
+            sender = XSender({v: k for k, v in SCAN.items()})
         self.sender = sender if sender is not None else Sender()
         self.counts_per_90 = float(counts_per_90) if counts_per_90 and counts_per_90 > 0 else 2500.0
         self.stop = stop or threading.Event()

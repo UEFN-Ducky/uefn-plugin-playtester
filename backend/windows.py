@@ -86,6 +86,10 @@ def _cloaked(hwnd: int) -> bool:
 
 def list_windows() -> list[dict[str, Any]]:
     """Every visible, unowned top-level window: {hwnd, title, exe, pid, width, height, minimized, foreground}."""
+    if sys.platform.startswith("linux"):
+        from . import x11
+
+        return x11.list_windows()
     if sys.platform != "win32":
         return []
     import ctypes

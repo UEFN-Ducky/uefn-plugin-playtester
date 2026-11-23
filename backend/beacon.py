@@ -14,6 +14,7 @@ from __future__ import annotations
 import calendar
 import os
 import re
+import sys
 import threading
 import time
 from collections import deque
@@ -31,6 +32,10 @@ _VERSE = re.compile(_STAMP + r".*?LogVerse:[^:]*: ?(.*)$")
 
 
 def editor_log() -> str:
+    if sys.platform.startswith("linux"):  # UEFN under Proton logs inside its Wine prefix
+        from . import x11
+
+        return x11.prefix_file("UnrealEditorFortnite/Saved/Logs/UnrealEditorFortnite.log")
     return os.path.join(os.environ.get("LOCALAPPDATA", ""), "UnrealEditorFortnite", "Saved", "Logs", "UnrealEditorFortnite.log")
 
 

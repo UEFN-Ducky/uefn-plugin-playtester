@@ -17,6 +17,7 @@ it loads. Every attempt reports the method that worked so runs can log it.
 
 from __future__ import annotations
 
+import sys
 import time
 from typing import Any, Callable
 
@@ -121,6 +122,10 @@ class Win:
 def bring_to_front(hwnd: int, *, allow_click: bool = True, win: Any = None,
                    sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.perf_counter) -> dict[str, Any]:
     """{ok, method, ms, tried} — method: already, plain, attach, alt, click-title, click-right."""
+    if win is None and sys.platform.startswith("linux"):
+        from .x11 import XWin
+
+        win = XWin()
     w = win if win is not None else Win()
     started = clock()
     tried: list[str] = []

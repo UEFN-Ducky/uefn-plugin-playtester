@@ -21,8 +21,38 @@ MIN_SIDE = 280
 MAX_SIDE = 1568
 
 
+NO_CLIENT = "No Fortnite client is open: start a session in UEFN (Launch Session) and wait for the island."
+
+
+def _linux_client() -> dict[str, Any]:
+    """client() under Proton: the one X window titled Fortnite, play mode read from the client's log."""
+    from . import x11
+
+    try:
+        rows = [r for r in x11.list_windows() if str(r.get("title") or "").strip().lower() == "fortnite"]
+    except RuntimeError as exc:
+        return {"ok": False, "error": str(exc)}
+    if not rows:
+        return {"ok": False, "error": NO_CLIENT}
+    if len(rows) > 1:
+        return {"ok": False, "error": "More than one Fortnite window is open: close the extra one."}
+    log = x11.prefix_file("FortniteGame/Saved/Logs/FortniteGame.log")
+    try:
+        from backend.tools.uefn.fortnite_client import gameplay_loaded_for
+
+        age = gameplay_loaded_for(log) if log else None
+    except Exception:
+        return {"ok": False, "error": "This UEFN Ducky has no Fortnite client support: update the app."}
+    row = rows[0]
+    return {"ok": True, "running": True, "hwnd": int(row["hwnd"]), "title": row["title"],
+            "foreground": bool(row.get("foreground")), "gameplay_loaded": age is not None,
+            "loaded_for_s": None if age is None else round(age, 1)}
+
+
 def client() -> dict[str, Any]:
     """{ok, hwnd, title, foreground, gameplay_loaded, loaded_for_s} or {ok: False, error}."""
+    if sys.platform.startswith("linux"):
+        return _linux_client()
     if sys.platform != "win32":
         return {"ok": False, "error": "Play Tester needs Windows (it drives the Fortnite client window)."}
     try:
@@ -76,6 +106,13 @@ def _user32() -> Any:
 
 
 def foreground() -> int:
+    if sys.platform.startswith("linux"):
+        from . import x11
+
+        try:
+            return x11.foreground()
+        except Exception:
+            return 0
     try:
         return int(_user32().GetForegroundWindow() or 0)
     except Exception:
@@ -91,6 +128,13 @@ def focus(hwnd: int, allow_click: bool = True) -> dict[str, Any]:
 
 def client_box(hwnd: int) -> tuple[int, int, int, int]:
     """The game's drawing area on screen (no title bar or borders)."""
+    if sys.platform.startswith("linux"):
+        from . import x11
+
+        box = x11.client_box(hwnd)
+        if box[2] - box[0] < MIN_SIDE or box[3] - box[1] < MIN_SIDE:
+            raise RuntimeError("The game window is too small to see: make it larger than 280 x 280.")
+        return box
     import ctypes
     from ctypes import wintypes
 
@@ -134,6 +178,16 @@ def grab(hwnd: int, longest: int = 1024) -> dict[str, Any]:
     from PIL import ImageGrab
 
     started = time.perf_counter()
+    if sys.platform.startswith("linux"):  # the window's own pixels: XWayland has no desktop to grab
+        from . import x11
+
+        client_box(hwnd)  # the same size check
+        shot = x11.window_image(hwnd)
+        if shot is None:
+            raise RuntimeError("Could not read the game window's pixels")
+        img = fit(shot, longest)
+        data = jpeg(img)
+        return {"image": img, "jpeg": data, "width": img.size[0], "height": img.size[1], "ms": int((time.perf_counter() - started) * 1000)}
     shot = ImageGrab.grab(bbox=client_box(hwnd), all_screens=True)
     img = fit(shot, longest)
     data = jpeg(img)
