@@ -115,7 +115,8 @@ def _ducky_python(repo: Path) -> str:
 # Compiled build targets and the python_abi ending each one carries. Nuitka can't
 # cross-compile a module, so a target builds on its own OS and CPU (linux-arm64 on an
 # arm64 machine); the Ducky kit writes the build's python_abi into plugin.json.
-TARGETS = {"windows": "-win_amd64", "linux-x86_64": "-x86_64-linux-gnu", "linux-arm64": "-aarch64-linux-gnu"}
+TARGETS = {"windows": "-win_amd64", "linux-x86_64": "-x86_64-linux-gnu", "linux-arm64": "-aarch64-linux-gnu",
+           "macos-arm64": "-darwin-arm64", "macos-x64": "-darwin-x86_64"}
 
 
 def host_target() -> str:
@@ -124,7 +125,10 @@ def host_target() -> str:
     import platform
 
     arch = platform.machine().lower()
-    return f"{sys.platform}-" + {"amd64": "x86_64", "aarch64": "arm64"}.get(arch, arch)
+    arch = {"amd64": "x86_64", "aarch64": "arm64"}.get(arch, arch)
+    if sys.platform == "darwin":
+        return "macos-" + {"x86_64": "x64"}.get(arch, arch)
+    return f"{sys.platform}-{arch}"
 
 
 def compiled_dest(pid: str, version: object, target: str) -> Path:

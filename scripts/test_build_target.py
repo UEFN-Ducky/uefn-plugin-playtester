@@ -11,6 +11,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import build_zip as bz  # noqa: E402
 
 
+@pytest.mark.parametrize("machine,want", [("arm64", "macos-arm64"), ("x86_64", "macos-x64")])
+def test_mac_host_target(monkeypatch, machine, want):
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr("platform.machine", lambda: machine)
+    assert bz.host_target() == want
+    assert bz.compiled_dest("p", 3, want).name == f"p-3-{want}-compiled.ducky-plugin.zip"
+    assert f"cpython-313-darwin-{machine}".endswith(bz.TARGETS[want])
+
+
 def test_names_per_target(monkeypatch):
     monkeypatch.setattr(bz, "host_target", lambda: "linux-x86_64")
     assert bz.compiled_dest("p", 3, "linux-x86_64").name == "p-3-linux-x86_64-compiled.ducky-plugin.zip"
