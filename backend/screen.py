@@ -54,7 +54,8 @@ def client() -> dict[str, Any]:
     if sys.platform.startswith("linux"):
         return _linux_client()
     if sys.platform != "win32":
-        return {"ok": False, "error": "Play Tester needs Windows (it drives the Fortnite client window)."}
+        return {"ok": False, "error": ("Play Tester needs Windows (it drives the Fortnite client window). "
+                                        "On a Mac, run the playtest on the paired Windows PC.")}
     try:
         from backend.tools.uefn.fortnite_client import client_status
     except Exception:
